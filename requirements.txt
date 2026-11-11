@@ -1,5 +1,3 @@
 nnsight
-torch
-transformers
 pytest
 pytest-anyio
