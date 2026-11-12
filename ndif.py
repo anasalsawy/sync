@@ -57,6 +57,7 @@ import math
 import torch
 import nnsight
 from nnsight import TransformersModel
+from transformers import AutoTokenizer
 
 from runtime import Decision, Demand, Exchange
 
@@ -191,7 +192,9 @@ class NDIFChannels:
                  slots: int = SLOTS_PER_PEER,
                  gate_strength: float = 2.0) -> None:
         nnsight.CONFIG.API.APIKEY = os.environ["NDIF_API_KEY"]
-        self.model = TransformersModel(model_name, device_map="meta",
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = TransformersModel(model_name, tokenizer=tokenizer,
+                                       device_map="meta",
                                        task="text-generation")
         self.layers = list(self.model.model.layers)
         self.slots = slots
