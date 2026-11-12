@@ -18,7 +18,7 @@ import json
 from ndif import NDIFChannels, LobePrompt
 from memory_store import WorkingMemory, EpisodicMemory
 
-MODEL = os.environ.get("NDIF_MODEL", "Qwen/Qwen3-0.6B")
+MODEL = os.environ.get("NDIF_MODEL", "Qwen/Qwen3.8-27B")
 PORT = int(os.environ.get("PORT", 8080))
 
 # Module-level singletons — one model, one memory, shared across requests
