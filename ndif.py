@@ -258,21 +258,32 @@ class NDIFChannels:
         slot_widths_per_lobe = [{names[si]: slots_map[(ri, si)]
                                   for si in range(count) if si != ri}
                                  for ri in range(count)]
-        texts = [
-            channel_prompt(
-                prompts[ri].text,
+        tok = model.tokenizer
+        texts = []
+        for ri in range(count):
+            text = prompts[ri].text
+            if prompts[ri].lobe == "L":
+                # Qwen requires its chat template to produce an assistant
+                # continuation. Keep the channel band outside the rendered
+                # conversation and disable hidden reasoning for this API.
+                text = text.removesuffix("\\nassistant:")
+                text = tok.apply_chat_template(
+                    [{"role": "user", "content": text}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+            texts.append(channel_prompt(
+                text,
                 peer_names_per_lobe[ri],
                 slot_widths_per_lobe[ri],
                 default_w,
-            )
-            for ri in range(count)
-        ]
+            ))
 
         # Left-padding shifts every row's real tokens right by its pad count.
         # The slot band sits at the start of the REAL prompt, so its absolute
         # position is pad_of[row] + offset. Without this, any row shorter than
         # the longest one gets its slot writes dropped onto masked pad tokens.
-        tok = model.tokenizer
         lens = [len(tok(t)["input_ids"]) for t in texts]
         longest = max(lens)
         pad_of = [longest - n for n in lens]
