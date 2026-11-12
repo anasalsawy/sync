@@ -60,7 +60,7 @@ def channel_prompt(text: str, peer_names: list[str],
 class NDIFDynamic:
     """An Inference where channel bandwidth is content-driven."""
 
-    def __init__(self, *, model_name: str = "Qwen/Qwen3.5-122B-A10B",
+    def __init__(self, *, model_name: str = "Qwen/Qwen3.8-27B",
                  slots: int = SLOTS_PER_PEER) -> None:
         nnsight.CONFIG.API.APIKEY = os.environ["NDIF_API_KEY"]
         self.model = TransformersModel(model_name, device_map="meta",
@@ -165,8 +165,8 @@ async def demo():
     Dynamic emergent behavior = these numbers change task to task without
     any routing code.
     """
-    adapter = NDIFDynamic(model_name="Qwen/Qwen3.5-122B-A10B")
-    print(f"model: Qwen/Qwen3.5-122B-A10B, {len(adapter.layers)} layers")
+    adapter = NDIFDynamic(model_name="Qwen/Qwen3.8-27B")
+    print(f"model: Qwen/Qwen3.8-27B, {len(adapter.layers)} layers")
     print(f"gating: norm-based adaptive (gate_strength=2.0)")
     print()
 
