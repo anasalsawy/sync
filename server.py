@@ -54,22 +54,14 @@ def _build_lobe_prompts(message: str) -> list[LobePrompt]:
     return [l_prompt, r_prompt, b_prompt]
 
 
-def _generate_reply(channels: NDIFChannels, prompt: str) -> str:
-    """Generate a complete NDIF reply instead of decoding one logit token."""
-    model = channels.model
-    tokenizer = model.tokenizer
-    input_ids = tokenizer(prompt, return_tensors="pt").input_ids[0]
-
-    with model.generate(
-        prompt,
-        remote=True,
-        max_new_tokens=80,
-        do_sample=False,
-    ) as tracer:
-        response = tracer.result.save()
-
-    generated_ids = response[0][len(input_ids):]
-    return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+def _decode_reply(logits: dict, channels: NDIFChannels) -> str:
+    """Greedy decode one token from L's logits, then return as text."""
+    import torch
+    l_logits = logits.get("L")
+    if l_logits is None:
+        return ""
+    token_id = int(torch.argmax(l_logits.float()).item())
+    return channels.model.tokenizer.decode([token_id], skip_special_tokens=True)
 
 
 async def _think(message: str) -> str:
@@ -78,8 +70,7 @@ async def _think(message: str) -> str:
 
     decision, logits, slot_act, tier1, auto_demands = await channels.think(prompts)
 
-    generation_prompt = prompts[0].text + "\nassistant:"
-    reply = await asyncio.to_thread(_generate_reply, channels, generation_prompt)
+    reply = _decode_reply(logits, channels)
 
     # Update rolling history
     _history.append(f"user: {message}")
@@ -122,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            reply = asyncio.run(_think(message))
+            reply = asyncio.get_event_loop().run_until_complete(_think(message))
             self._json(200, {"reply": reply})
         except Exception as e:
             self._json(500, {"error": str(e)})
