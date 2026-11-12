@@ -25,7 +25,7 @@ SCENARIOS = {
 async def main():
     nnsight.CONFIG.API.APIKEY = os.environ["NDIF_API_KEY"]
     name = sys.argv[1]
-    model_name = sys.argv[2] if len(sys.argv) > 2 else "Qwen/Qwen3.5-122B-A10B"
+    model_name = sys.argv[2] if len(sys.argv) > 2 else "Qwen/Qwen3.8-27B"
     adapter = NDIFChannels(model_name=model_name)
     prompts = [LobePrompt(lobe, text) for lobe, text in SCENARIOS[name]]
     spans, table = await adapter.reliance(prompts)
