@@ -501,7 +501,11 @@ class NDIFChannels:
 
         # Pull the speech lobe's row, drop the (left-padded) prompt, stop at EOS.
         row = names.index(speaker) if speaker in names else 0
-        new_ids = out[row][longest:].tolist()
+        sequence = out[row].tolist()
+        # NNsight versions differ: some return prompt+completion, while
+        # others return only the generated completion for batched generation.
+        # Strip the prompt only when it is present.
+        new_ids = sequence[longest:] if len(sequence) > longest else sequence
         stop_ids = {tok.eos_token_id}
         for special in ("<|im_end|>", "<|endoftext|>"):
             tid = tok.convert_tokens_to_ids(special)
