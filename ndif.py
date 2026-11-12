@@ -37,6 +37,14 @@ Input convention: each lobe receives ONLY its own raw data stream.
   V: raw visual patches/coordinates only.
   C: raw constraint targets + current R/L state only.
 No "You are X", no job descriptions. The input tokens ARE the identity.
+
+Generation
+----------
+think() is ONE forward pass and yields next-token logits only. To produce a
+whole reply, use generate()/generate_sync(): the channel writes happen once,
+during the prefill pass, inside a single remote model.generate() call. They
+land in the KV cache, so the remaining tokens are decoded server-side with the
+cache and no extra round trips. One remote job per reply, not one per token.
 """
 from __future__ import annotations
 
@@ -103,11 +111,26 @@ ASYMMETRIC_WIRING_DEFAULT: dict[tuple[str, str], tuple[int, int]] = {
 # Asymmetric wiring kicks in automatically when lobe names match the 5-lobe set.
 _FIVE_LOBE_NAMES = frozenset({"L", "R", "B", "V", "C"})
 
+# Layers whose slot band is snapshotted for Tier-1 memory.
+_SNAP_LAYERS = (9, 18, 27)
+
 
 @dataclass(frozen=True)
 class LobePrompt:
     lobe: str
     text: str
+
+
+@dataclass
+class Generation:
+    """Result of generate(): everything think() returns, plus L's reply."""
+    decision: Decision
+    logits: dict[str, Any]          # first-token logits per lobe (prefill pass)
+    slot_act: Any
+    tier1: dict[str, dict[int, Any]]
+    auto_demands: list[Demand]
+    text: str                       # decoded reply of the speech lobe (L)
+    token_ids: list[int] = field(default_factory=list)
 
 
 def entropy_demands(
@@ -174,6 +197,14 @@ class NDIFChannels:
         self.slots = slots
         self.gate_strength = gate_strength
 
+        # Batched rows have different lengths, so they get padded. Left padding
+        # is required for (a) generation and (b) reading the last real token
+        # at [-1]. Slot-band positions are corrected for it in _prepare().
+        tok = self.model.tokenizer
+        tok.padding_side = "left"
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+
     def _build_slot_map(self, prompts: list[LobePrompt],
                         attention_demands: dict[str, tuple[str, ...]]) -> dict[tuple[int, int], int]:
         """Resolve per-pair slot widths from demands."""
@@ -191,18 +222,23 @@ class NDIFChannels:
                 )
         return result
 
-    def _think_sync(self, prompts: list[LobePrompt],
-                    attention_demands: dict[str, tuple[str, ...]] | None = None):
+    def _prepare(self, prompts: list[LobePrompt],
+                 attention_demands: dict[str, tuple[str, ...]] | None) -> dict[str, Any]:
+        """Everything that is plain Python and must exist before the trace.
+
+        Pure bookkeeping, no remote work. Shared by think(), generate() and
+        reliance() so the three can never drift apart.
+        """
         model = self.model
         layers = self.layers
         count = len(prompts)
         names = [p.lobe for p in prompts]
         first, last = 2, len(layers) - 2
         demands = attention_demands or {}
-
-        slots_map = self._build_slot_map(prompts, demands)
         default_w = self.slots
         gs = self.gate_strength
+
+        slots_map = self._build_slot_map(prompts, demands)
 
         # Token offsets: where each peer's slot band starts in receiver's prompt
         slots_offset: dict[tuple[int, int], int] = {}
@@ -229,6 +265,15 @@ class NDIFChannels:
             for ri in range(count)
         ]
 
+        # Left-padding shifts every row's real tokens right by its pad count.
+        # The slot band sits at the start of the REAL prompt, so its absolute
+        # position is pad_of[row] + offset. Without this, any row shorter than
+        # the longest one gets its slot writes dropped onto masked pad tokens.
+        tok = model.tokenizer
+        lens = [len(tok(t)["input_ids"]) for t in texts]
+        longest = max(lens)
+        pad_of = [longest - n for n in lens]
+
         # Flat order list: (receiver, sender, slot_offset, slot_width, wire_first, wire_last)
         # wire_first/wire_last: the layer range this pair is active.
         # For 5-lobe topology, use asymmetric wiring. Otherwise uniform (first..last).
@@ -246,11 +291,15 @@ class NDIFChannels:
                     wire_last = min(wire_last, last)
                 else:
                     wire_first, wire_last = first, last
-                order.append((ri, si, slots_offset[(ri, si)], slots_map[(ri, si)],
-                               wire_first, wire_last))
+                order.append((ri, si, pad_of[ri] + slots_offset[(ri, si)],
+                              slots_map[(ri, si)], wire_first, wire_last))
 
         max_width = max(slots_map.values())
-        snap9 = snap18 = snap27 = None  # Tier-1 captures; named vars survive trace
+
+        # Index lists for gathering each row's own slot band (pad-aware).
+        # Plain nested lists: they ship to the remote trace without surprises.
+        row_idx = [[r] for r in range(count)]
+        slot_idx = [[pad_of[r] + k for k in range(max_width)] for r in range(count)]
 
         hdim_sqrt = math.sqrt(model.config.hidden_size)
 
@@ -264,6 +313,68 @@ class NDIFChannels:
             for ri in range(count)
         ]
 
+        return dict(
+            model=model, layers=layers, count=count, names=names,
+            first=first, last=last, default_w=default_w, texts=texts,
+            longest=longest, pad_of=pad_of, order=order, max_width=max_width,
+            row_idx=row_idx, slot_idx=slot_idx, hdim_sqrt=hdim_sqrt,
+            demand_boost_grid=demand_boost_grid,
+        )
+
+    def _finish(self, prompts: list[LobePrompt], P: dict[str, Any], shared,
+                crossing, slot_act, snaps: dict[int, Any]):
+        """Turn raw trace outputs into (Decision, logits, slot_act, tier1, auto_demands)."""
+        count = P["count"]
+        names = P["names"]
+        first, last = P["first"], P["last"]
+
+        site = f"layers.{first}-{last - 1}"
+        exchanges = []
+        for ri in range(count):
+            for si in range(count):
+                if si == ri:
+                    continue
+                exchanges.append(Exchange(
+                    source=prompts[si].lobe, target=prompts[ri].lobe,
+                    site=site, magnitude=float(crossing[si]),
+                ))
+        for item in exchanges:
+            if item.magnitude <= 0:
+                raise RuntimeError(f"Nothing crossed the channel: {item}")
+
+        logits = {prompt.lobe: shared[index]
+                  for index, prompt in enumerate(prompts)}
+        # Build Tier-1 snapshot: {lobe_name: {layer_idx: tensor(slots, hidden)}}
+        raw_snaps = {li: s for li, s in snaps.items() if s is not None}
+        tier1: dict[str, dict[int, Any]] = {
+            prompt.lobe: {li: raw_snaps[li][idx, :, :] for li in raw_snaps}
+            for idx, prompt in enumerate(prompts)
+        }
+
+        # Entropy-based auto-demands: measure uncertainty in output distribution.
+        # High entropy → lobe didn't have enough peer context → auto-widen next pass.
+        auto_demands = entropy_demands(logits, names)
+
+        return Decision(exchanges=tuple(exchanges)), logits, slot_act, tier1, auto_demands
+
+    # ------------------------------------------------------------------
+    # One forward pass: next-token logits only.
+    # ------------------------------------------------------------------
+    def _think_sync(self, prompts: list[LobePrompt],
+                    attention_demands: dict[str, tuple[str, ...]] | None = None):
+        P = self._prepare(prompts, attention_demands)
+        model, layers = P["model"], P["layers"]
+        first, last = P["first"], P["last"]
+        default_w, texts = P["default_w"], P["texts"]
+        order, max_width = P["order"], P["max_width"]
+        row_idx, slot_idx = P["row_idx"], P["slot_idx"]
+        hdim_sqrt = P["hdim_sqrt"]
+        demand_boost_grid = P["demand_boost_grid"]
+        mid = len(layers) // 2
+
+        snap9 = snap18 = snap27 = None  # Tier-1 captures; named vars survive trace
+        slot_act = crossing = shared = None
+
         with model.trace(texts, remote=True):
             for index in range(first, last):
                 layer = layers[index]
@@ -272,6 +383,11 @@ class NDIFChannels:
                 # This prevents residual-norm bias: loud senders don't dominate,
                 # quiet ones don't vanish. Direction is preserved; only scale changes.
                 recv_rms = layer.output[:, -1, :].norm(dim=-1) / hdim_sqrt
+
+                # Crossing magnitude for exchange reporting, captured in this same
+                # trace (used to be a second remote trace = a whole extra round trip).
+                if index == mid:
+                    crossing = layer.output[:, -default_w:, :].abs().sum(dim=(1, 2)).save()
 
                 for ri, si, offset, width, wire_first, wire_last in order:
                     # Asymmetric wiring: skip this pair outside its active range
@@ -291,54 +407,120 @@ class NDIFChannels:
 
                 # Capture mid-layer slot activity + Tier-1 snapshots inline
                 # (must be here, not outside loop — OutOfOrderError otherwise)
-                if index == len(layers) // 2:
-                    slot_act = layer.output[:, :max_width, :].abs().mean(dim=-1).save()
+                if index == mid:
+                    slot_act = layer.output[row_idx, slot_idx, :].abs().mean(dim=-1).save()
                 if index == 9:
-                    snap9 = layer.output[:, :max_width, :].save()
+                    snap9 = layer.output[row_idx, slot_idx, :].save()
                 if index == 18:
-                    snap18 = layer.output[:, :max_width, :].save()
+                    snap18 = layer.output[row_idx, slot_idx, :].save()
                 if index == 27:
-                    snap27 = layer.output[:, :max_width, :].save()
+                    snap27 = layer.output[row_idx, slot_idx, :].save()
 
             shared = model.lm_head.output[:, -1, :].save()
 
-        # Measure crossing magnitude for exchange reporting
-        with model.trace(texts, remote=True):
-            mid = layers[len(layers) // 2]
-            crossing = mid.output[:, -default_w:, :].clone().abs().sum(dim=(1, 2)).save()
+        return self._finish(prompts, P, shared, crossing, slot_act,
+                            {9: snap9, 18: snap18, 27: snap27})
 
-        site = f"layers.{first}-{last - 1}"
-        exchanges = []
-        for ri in range(count):
-            for si in range(count):
-                if si == ri:
-                    continue
-                exchanges.append(Exchange(
-                    source=prompts[si].lobe, target=prompts[ri].lobe,
-                    site=site, magnitude=float(crossing[si]),
-                ))
-        for item in exchanges:
-            if item.magnitude <= 0:
-                raise RuntimeError(f"Nothing crossed the channel: {item}")
+    # ------------------------------------------------------------------
+    # Full reply: ONE remote generate() call.
+    # ------------------------------------------------------------------
+    def generate_sync(self, prompts: list[LobePrompt], max_new_tokens: int = 64,
+                      attention_demands: dict[str, tuple[str, ...]] | None = None,
+                      speaker: str = "L") -> Generation:
+        """Run the channel pass once, then decode a whole reply server-side.
 
-        logits = {prompt.lobe: shared[index]
-                  for index, prompt in enumerate(prompts)}
-        # Build Tier-1 snapshot: {lobe_name: {layer_idx: tensor(slots, hidden)}}
-        raw_snaps = {li: s for li, s in [(9, snap9), (18, snap18), (27, snap27)] if s is not None}
-        tier1: dict[str, dict[int, Any]] = {
-            prompt.lobe: {li: raw_snaps[li][idx, :, :] for li in raw_snaps}
-            for idx, prompt in enumerate(prompts)
-        }
+        Inside model.generate(), module access applies to the FIRST forward
+        pass only (the prefill). That is exactly where the peer writes belong:
+        they end up in the KV cache and every later token attends to them for
+        free. The remaining max_new_tokens-1 steps run on the remote GPU with
+        the cache, in the same job. Peer signals are therefore fixed at prefill
+        (not refreshed per generated token) — that's the price of not paying a
+        network round trip per token.
+        """
+        P = self._prepare(prompts, attention_demands)
+        model, layers = P["model"], P["layers"]
+        names, longest = P["names"], P["longest"]
+        first, last = P["first"], P["last"]
+        default_w, texts = P["default_w"], P["texts"]
+        order, max_width = P["order"], P["max_width"]
+        row_idx, slot_idx = P["row_idx"], P["slot_idx"]
+        hdim_sqrt = P["hdim_sqrt"]
+        demand_boost_grid = P["demand_boost_grid"]
+        mid = len(layers) // 2
+        tok = model.tokenizer
+        pad_id = tok.pad_token_id
 
-        # Entropy-based auto-demands: measure uncertainty in output distribution.
-        # High entropy → lobe didn't have enough peer context → auto-widen next pass.
-        auto_demands = entropy_demands(logits, names)
+        snap9 = snap18 = snap27 = None
+        slot_act = crossing = shared = out = None
 
-        return Decision(exchanges=tuple(exchanges)), logits, slot_act, tier1, auto_demands
+        with model.generate(texts, max_new_tokens=int(max_new_tokens),
+                            do_sample=False, pad_token_id=pad_id,
+                            remote=True) as tracer:
+            # ---- prefill pass: identical wiring to _think_sync ----
+            for index in range(first, last):
+                layer = layers[index]
+                recv_rms = layer.output[:, -1, :].norm(dim=-1) / hdim_sqrt
+
+                if index == mid:
+                    crossing = layer.output[:, -default_w:, :].abs().sum(dim=(1, 2)).save()
+
+                for ri, si, offset, width, wire_first, wire_last in order:
+                    if index < wire_first or index >= wire_last:
+                        continue
+                    peer_slots = layer.output[si, -default_w:, :].clone()
+                    demand_boost = demand_boost_grid[ri][si]
+                    for slot in range(width):
+                        src_slot = slot % default_w
+                        send_rms = peer_slots[src_slot].norm() / hdim_sqrt
+                        scale = (recv_rms[ri] / (send_rms + 1e-8)).clamp(0.0, 5.0)
+                        layer.output[ri, offset + slot, :] = peer_slots[src_slot] * scale * demand_boost
+
+                if index == mid:
+                    slot_act = layer.output[row_idx, slot_idx, :].abs().mean(dim=-1).save()
+                if index == 9:
+                    snap9 = layer.output[row_idx, slot_idx, :].save()
+                if index == 18:
+                    snap18 = layer.output[row_idx, slot_idx, :].save()
+                if index == 27:
+                    snap27 = layer.output[row_idx, slot_idx, :].save()
+
+            shared = model.lm_head.output[:, -1, :].save()
+
+            # ---- the generated sequence (prompt + new tokens), all rows ----
+            # nnsight >= 0.5 exposes tracer.result; 0.4 exposes model.generator.output.
+            out = (tracer.result if hasattr(tracer, "result")
+                   else model.generator.output).save()
+
+        decision, logits, slot_act, tier1, auto_demands = self._finish(
+            prompts, P, shared, crossing, slot_act,
+            {9: snap9, 18: snap18, 27: snap27},
+        )
+
+        # Pull the speech lobe's row, drop the (left-padded) prompt, stop at EOS.
+        row = names.index(speaker) if speaker in names else 0
+        new_ids = out[row][longest:].tolist()
+        stop_ids = {tok.eos_token_id}
+        for special in ("<|im_end|>", "<|endoftext|>"):
+            tid = tok.convert_tokens_to_ids(special)
+            if isinstance(tid, int) and tid >= 0 and tid != tok.unk_token_id:
+                stop_ids.add(tid)
+        trimmed: list[int] = []
+        for tid in new_ids:
+            if tid in stop_ids:
+                break
+            trimmed.append(tid)
+        text = tok.decode(trimmed, skip_special_tokens=True)
+
+        return Generation(decision=decision, logits=logits, slot_act=slot_act,
+                          tier1=tier1, auto_demands=auto_demands,
+                          text=text, token_ids=trimmed)
 
     async def think(self, prompts: list[LobePrompt],
                     attention_demands: dict[str, tuple[str, ...]] | None = None):
         """Returns (Decision, logits, slot_act, tier1_snapshot, auto_demands).
+
+        One forward pass: logits are the NEXT-TOKEN distribution only. For a
+        full reply use generate().
 
         tier1_snapshot: {lobe_name: {layer_idx: tensor}} — raw pre-RoPE slots
         at layers 9/18/27 for same-session Tier-1 memory. Pass to
@@ -352,64 +534,27 @@ class NDIFChannels:
         """
         return await asyncio.to_thread(self._think_sync, prompts, attention_demands)
 
+    async def generate(self, prompts: list[LobePrompt], max_new_tokens: int = 64,
+                       attention_demands: dict[str, tuple[str, ...]] | None = None,
+                       speaker: str = "L") -> Generation:
+        """Async wrapper around generate_sync (one remote job per reply)."""
+        return await asyncio.to_thread(self.generate_sync, prompts, max_new_tokens,
+                                       attention_demands, speaker)
+
     async def reliance(self, prompts: list[LobePrompt], bands: int = 3,
                        attention_demands: dict[str, tuple[str, ...]] | None = None):
         """Emergent routing by depth band: how much does silencing one channel move output?"""
         return await asyncio.to_thread(self._reliance_sync, prompts, bands, attention_demands)
 
     def _reliance_sync(self, prompts, bands, attention_demands=None):
-        model = self.model
-        layers = self.layers
-        count = len(prompts)
-        demands = attention_demands or {}
-        default_w = self.slots
-        gs = self.gate_strength
-        first, last = 2, len(layers) - 2
-
-        slots_map = self._build_slot_map(prompts, demands)
-        slots_offset = {}
-        for ri in range(count):
-            pos = 0
-            for si in range(count):
-                if si == ri:
-                    continue
-                slots_offset[(ri, si)] = pos
-                pos += slots_map[(ri, si)]
-
-        names = [p.lobe for p in prompts]
-        peer_names_per_lobe = [[names[si] for si in range(count) if si != ri]
-                               for ri in range(count)]
-        slot_widths_per_lobe = [{names[si]: slots_map[(ri, si)]
-                                  for si in range(count) if si != ri}
-                                 for ri in range(count)]
-        texts = [
-            channel_prompt(prompts[ri].text, peer_names_per_lobe[ri],
-                           slot_widths_per_lobe[ri], default_w)
-            for ri in range(count)
-        ]
-        is_five_lobe = frozenset(names) <= _FIVE_LOBE_NAMES and len(names) >= 4
-        order = []
-        for ri in range(count):
-            for si in range(count):
-                if si == ri:
-                    continue
-                pair = (names[si], names[ri])
-                if is_five_lobe and pair in ASYMMETRIC_WIRING_DEFAULT:
-                    wf, wl = ASYMMETRIC_WIRING_DEFAULT[pair]
-                    wf, wl = max(wf, first), min(wl, last)
-                else:
-                    wf, wl = first, last
-                order.append((ri, si, slots_offset[(ri, si)], slots_map[(ri, si)], wf, wl))
-
-        hdim_sqrt = math.sqrt(model.config.hidden_size)
-        demand_boost_grid = [
-            [
-                gs if (si != ri and names[si] in demands.get(names[ri], ()))
-                else 1.0
-                for si in range(count)
-            ]
-            for ri in range(count)
-        ]
+        P = self._prepare(prompts, attention_demands)
+        model, layers = P["model"], P["layers"]
+        count = P["count"]
+        first, last = P["first"], P["last"]
+        default_w, texts = P["default_w"], P["texts"]
+        order = P["order"]
+        hdim_sqrt = P["hdim_sqrt"]
+        demand_boost_grid = P["demand_boost_grid"]
 
         def pass_with(mute_ri, mute_si, low, high):
             with model.trace(texts, remote=True):
