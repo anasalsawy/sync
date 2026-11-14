@@ -486,7 +486,7 @@ class NDIFChannels:
 
                     peer_slots = layer.output[si, -default_w:, :]   # [default_w, H]
                     send_rms = peer_slots.norm(dim=-1) / hdim_sqrt   # [default_w]
-                    scale = (recv_rms[ri] / (send_rms + 1e-8)).clamp(0.0, 5.0)  # [default_w]
+                    scale = (recv_rms[ri].to(send_rms.device) / (send_rms + 1e-8)).clamp(0.0, 5.0)  # [default_w]
 
                     boost = demand_boost_grid[ri][si]
                     if names[si] == "C" and names[ri] == "L":
@@ -550,7 +550,7 @@ class NDIFChannels:
 
                     peer_slots = layer.output[si, -default_w:, :]
                     send_rms = peer_slots.norm(dim=-1) / hdim_sqrt
-                    scale = (recv_rms[ri] / (send_rms + 1e-8)).clamp(0.0, 5.0)
+                    scale = (recv_rms[ri].to(send_rms.device) / (send_rms + 1e-8)).clamp(0.0, 5.0)
 
                     boost = demand_boost_grid[ri][si]
                     if names[si] == "C" and names[ri] == "L":
@@ -645,7 +645,7 @@ class NDIFChannels:
                             continue
                         peer_slots = layer.output[si, -default_w:, :]
                         send_rms = peer_slots.norm(dim=-1) / hdim_sqrt
-                        scale = (recv_rms[ri] / (send_rms + 1e-8)).clamp(0.0, 5.0)
+                        scale = (recv_rms[ri].to(send_rms.device) / (send_rms + 1e-8)).clamp(0.0, 5.0)
                         boost = demand_boost_grid[ri][si]
                         if names[si] == "C" and names[ri] == "L":
                             boost = boost * C_VETO_BOOST
