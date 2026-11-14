@@ -112,8 +112,10 @@ class SyncRuntime:
         as plain additional input (not role-tagged, not stage-directed)
     """
 
-    # Default to MoE variant: 30B params, ~3B active/token, faster than 7B dense
-    DEFAULT_MODEL = "Qwen/Qwen3-30B-A3B"
+    # MoE upgrade path: 235B-A22B has 22B active/token (3× the current 7B dense)
+    # Stay on Qwen3-8B until you can test on 235B-A22B — do not use 30B-A3B,
+    # its 3B active/token is a regression from 7B dense.
+    DEFAULT_MODEL = "Qwen/Qwen3-8B"
 
     def __init__(
         self,
