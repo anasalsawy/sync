@@ -34,6 +34,7 @@ from ndif import (
     OffspringHandle,
     Generation,
 )
+from action_runtime import ActionRuntime, EnvironmentState
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +96,7 @@ class TurnResult:
     spawned: list[str]               # lobe names spawned this turn
     cancelled: list[str]             # lobe names cancelled (C veto / error)
     rc_divergence: float             # R↔C cosine distance that drove spawning
+    env_state: EnvironmentState | None = None  # parallel action results this turn
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +132,7 @@ class SyncRuntime:
         self.max_offspring = max_offspring
         self._handles: list[OffspringHandle] = []
         self._turn: int = 0
+        self._action_runtime = ActionRuntime()
 
     # ------------------------------------------------------------------
     # Harvest + C-veto
@@ -179,10 +182,17 @@ class SyncRuntime:
 
         offspring_ctx, cancelled = self._harvest_and_veto()
 
-        generation = await self.channels.generate(
-            self._prompts(user_input, offspring_ctx),
-            max_new_tokens=self.max_new_tokens,
-            shared=self.shared,
+        # Run main pass AND action round in parallel:
+        # - main pass: 5 lobes process user input, channel injections happen
+        # - action round: completed offspring outputs execute their actions NOW
+        # Both happen simultaneously — action latency is hidden inside main pass latency.
+        generation, env_state = await asyncio.gather(
+            self.channels.generate(
+                self._prompts(user_input, offspring_ctx),
+                max_new_tokens=self.max_new_tokens,
+                shared=self.shared,
+            ),
+            self._action_runtime.run(offspring_ctx),
         )
 
         # Spawn based on R↔C divergence
@@ -213,6 +223,7 @@ class SyncRuntime:
             spawned=spawned,
             cancelled=cancelled,
             rc_divergence=rc_dist,
+            env_state=env_state,
         )
 
     # ------------------------------------------------------------------
