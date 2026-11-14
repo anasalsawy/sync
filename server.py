@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/v1/chat":
+        if self.path not in ("/v1/chat", "/v1/chat/completions"):
             self._json(404, {"error": "not found"})
             return
         length = int(self.headers.get("Content-Length", 0))
@@ -77,7 +77,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid json"})
             return
 
-        message = (data.get("message") or "").strip()
+        # OpenAI-compatible: extract last user message from messages array
+        if "messages" in data:
+            msgs = data["messages"]
+            user_msgs = [m.get("content", "") for m in msgs if m.get("role") == "user"]
+            message = (user_msgs[-1] if user_msgs else "").strip()
+        else:
+            message = (data.get("message") or "").strip()
+
         if not message:
             self._json(400, {"error": "message required"})
             return
@@ -90,10 +97,28 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            self._json(200, {"reply": _run_sync(message, max_new)})
+            reply = _run_sync(message, max_new)
         except Exception as e:
             traceback.print_exc()
             self._json(500, {"error": str(e)})
+            return
+
+        # OpenAI-compatible response for /v1/chat/completions
+        if self.path == "/v1/chat/completions":
+            self._json(200, {
+                "id": f"chatcmpl-sync-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": MODEL,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": reply},
+                    "finish_reason": "stop",
+                }],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            })
+        else:
+            self._json(200, {"reply": reply})
 
     def _json(self, status: int, payload: dict):
         body = json.dumps(payload).encode()
