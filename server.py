@@ -1,8 +1,18 @@
-"""sawii/sync HTTP server — non-blocking L/R architecture.
+"""sawii/sync HTTP server — dual-mode L/R architecture.
 
-L (conversation) answers every user message immediately.
-R (execution) runs as a background offspring — never blocks L.
-B (memory) spawns per-turn, feeds context back to L.
+COUPLED mode: L and R think together in one batched NDIF call.
+  - Full live activation sharing during prefill (cross-slot wiring)
+  - Used when both lobes are working on the same thing
+  - L and R start and finish together
+
+DECOUPLED mode: L converses while R executes independently.
+  - R spawns as a background offspring, never blocks L
+  - L answers immediately, reads R's latest state from SharedState
+  - Used when execution is separate from conversation
+
+The system starts coupled. It switches to decoupled when R has an
+ongoing task that should keep running across turns. It snaps back to
+coupled when a new task needs joint reasoning.
 
 POST /v1/chat  {"message": "...", "max_tokens": 64}  → {"reply": "..."}
 GET  /health   → {"status": "ok"}
@@ -13,40 +23,34 @@ import asyncio
 import json
 import os
 import re
+import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ndif import NDIFChannels, NDIFOffspring, LobePrompt, SharedState, Generation
 from memory_store import WorkingMemory, EpisodicMemory
 
-MODEL = os.environ.get("NDIF_MODEL", "Qwen/Qwen3.8-27B")
+MODEL_L = os.environ.get("MODEL_L", os.environ.get("NDIF_MODEL", "Qwen/Qwen3.8-27B"))
+MODEL_R = os.environ.get("MODEL_R", os.environ.get("NDIF_MODEL", "Qwen/Qwen3.8-27B"))
+MODEL_B = os.environ.get("MODEL_B", os.environ.get("NDIF_MODEL", "Qwen/Qwen3.8-27B"))
+
 PORT = int(os.environ.get("PORT", 8080))
 DEFAULT_MAX_NEW_TOKENS = int(os.environ.get("NDIF_MAX_NEW_TOKENS", 64))
 HARD_MAX_NEW_TOKENS = int(os.environ.get("NDIF_HARD_MAX_NEW_TOKENS", 256))
 
 _working_mem = WorkingMemory(maxlen=20)
 _history: list[tuple[str, str]] = []
+_shared: SharedState = SharedState()
 
-# Shared state hub — R writes here, L reads it
-_shared: SharedState | None = None
-_channels: NDIFChannels | None = None      # L's inference engine
-_offspring: NDIFOffspring | None = None    # R/B's inference engine
-_r_handle = None                           # current R task handle (may be running)
+# Separate channel instances — different models if configured, else same model
+# with separate queues on NDIF
+_channels_coupled: NDIFChannels | None = None   # for batched L+R+B passes
+_offspring_engine: NDIFOffspring | None = None  # for decoupled R background tasks
+_r_handle = None                                # active background R task
+_mode = "coupled"                               # "coupled" | "decoupled"
 
 _loop: asyncio.AbstractEventLoop | None = None
-_init_lock = asyncio.Lock()
-
-
-async def _ensure_init():
-    global _shared, _channels, _offspring
-    async with _init_lock:
-        if _channels is None:
-            _channels = NDIFChannels(model_name=MODEL)
-        if _offspring is None:
-            _offspring = NDIFOffspring(model_name=MODEL)
-        if _shared is None:
-            _shared = SharedState()
-
+_init_lock: asyncio.Lock | None = None
 
 _STOP = ("\nuser:", "\nassistant:", "\nUser:", "\nAssistant:")
 
@@ -63,60 +67,133 @@ def _clean(text: str) -> str:
     return text[:cut].strip()
 
 
+async def _ensure_init():
+    global _channels_coupled, _offspring_engine, _init_lock
+    if _init_lock is None:
+        _init_lock = asyncio.Lock()
+    async with _init_lock:
+        if _channels_coupled is None:
+            _channels_coupled = NDIFChannels(model_name=MODEL_L)
+        if _offspring_engine is None:
+            _offspring_engine = NDIFOffspring(model_name=MODEL_R)
+
+
+def _has_active_r() -> bool:
+    return _r_handle is not None and not _r_handle.task.done()
+
+
+def _r_status() -> str:
+    """Get R's latest text from SharedState — non-blocking."""
+    state = _shared.offspring_states().get("R")
+    if state and state.text_so_far:
+        return state.text_so_far[:200]
+    return ""
+
+
+def _build_history_str(n: int = 8) -> str:
+    return "\n".join(f"{r}: {t}" for r, t in _history[-n:])
+
+
 def _l_prompt(message: str) -> str:
-    history = "\n".join(f"{r}: {t}" for r, t in _history[-8:])
-    # Read R's latest status from shared state (non-blocking)
-    r_state = _shared.get_offspring("R") if _shared else None
-    r_ctx = f"\n[R is working: {r_state.text_so_far[:120]}]" if (r_state and r_state.text_so_far) else ""
-    return f"{history}{r_ctx}\nuser: {message}\nassistant:".strip()
+    h = _build_history_str()
+    r_ctx = f"\n[R executing: {_r_status()}]" if _r_status() else ""
+    return f"{h}{r_ctx}\nuser: {message}\nassistant:".strip()
 
 
 def _r_prompt(message: str) -> str:
-    history = "\n".join(f"{r}: {t}" for r, t in _history[-4:])
+    h = _build_history_str(4)
     return (
-        f"{history}\nuser request: {message}\n"
-        f"[Execute any needed action for this request. Be thorough.]\nexecution:"
+        f"{h}\nuser request: {message}\n"
+        f"[Execute any needed action. Be thorough.]\nexecution:"
     ).strip()
 
 
-async def _handle_turn(message: str, max_tokens: int) -> str:
-    global _r_handle
+def _b_prompt(message: str) -> str:
+    h = _build_history_str(4)
+    return (
+        f"{h}\nuser: {message}\n"
+        f"[Recall relevant memory or context.]\nmemory:"
+    ).strip()
 
-    await _ensure_init()
 
-    # Spawn R as a background task — does NOT block L
-    # Cancel previous R if still running (new message supersedes old task)
-    if _r_handle is not None and not _r_handle.task.done():
+def _needs_execution(message: str) -> bool:
+    """Heuristic: does this message need R to do independent background work?"""
+    exec_keywords = (
+        "open", "search", "find", "click", "browse", "go to", "navigate",
+        "run", "execute", "do", "perform", "check", "fetch", "get",
+        "write", "create", "make", "build", "install", "download",
+    )
+    low = message.lower()
+    return any(kw in low for kw in exec_keywords)
+
+
+async def _coupled_turn(message: str, max_tokens: int) -> str:
+    """L + R + B in one batched call — full live activation sharing."""
+    gen: Generation = await _channels_coupled.generate(
+        [
+            LobePrompt(lobe="L", text=_l_prompt(message)),
+            LobePrompt(lobe="R", text=_r_prompt(message)),
+            LobePrompt(lobe="B", text=_b_prompt(message)),
+        ],
+        max_new_tokens=max_tokens,
+        speaker="L",
+        shared=_shared,
+    )
+    return _clean(gen.text)
+
+
+async def _decoupled_turn(message: str, max_tokens: int) -> str:
+    """L answers immediately. R runs as background offspring."""
+    global _r_handle, _mode
+
+    # Cancel stale R if running
+    if _has_active_r():
         _r_handle.task.cancel()
 
-    _r_handle = _offspring.spawn(
+    # Spawn R in background — returns immediately
+    _r_handle = _offspring_engine.spawn(
         LobePrompt(lobe="R", text=_r_prompt(message)),
         _shared,
         max_new_tokens=max_tokens,
     )
-    # R is now running in the background — L does not wait for it
 
-    # L answers immediately
-    l_gen: Generation = await _channels.generate(
+    # L answers without waiting for R
+    gen: Generation = await _channels_coupled.generate(
         [LobePrompt(lobe="L", text=_l_prompt(message))],
         max_new_tokens=max_tokens,
         speaker="L",
         shared=_shared,
     )
+    return _clean(gen.text)
 
-    l_text = _clean(l_gen.text)
-    if not l_text:
-        raise RuntimeError("L lobe returned empty reply")
+
+async def _handle_turn(message: str, max_tokens: int) -> str:
+    global _mode
+
+    await _ensure_init()
+
+    # Mode decision:
+    # - If R is actively running a background task → stay decoupled (don't interrupt)
+    # - If message needs independent execution → go decoupled
+    # - Otherwise → coupled (joint reasoning, full activation sharing)
+    if _has_active_r():
+        _mode = "decoupled"
+    elif _needs_execution(message):
+        _mode = "decoupled"
+    else:
+        _mode = "coupled"
+
+    if _mode == "coupled":
+        reply = await _coupled_turn(message, max_tokens)
+    else:
+        reply = await _decoupled_turn(message, max_tokens)
 
     _history.append(("user", message))
-    _history.append(("assistant", l_text))
+    _history.append(("assistant", reply))
     if len(_history) > 40:
         _history[:] = _history[-40:]
 
-    if l_gen.tier1:
-        _working_mem.save(l_gen.tier1, summary=message[:80])
-
-    return l_text
+    return reply
 
 
 def _run_sync(message: str, max_tokens: int) -> str:
@@ -132,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._json(200, {"status": "ok", "model": MODEL})
+            self._json(200, {"status": "ok", "model": MODEL_L, "mode": _mode})
         else:
             self._json(404, {"error": "not found"})
 
@@ -182,8 +259,8 @@ def _start_loop():
 
 
 if __name__ == "__main__":
-    import threading, time
-    print(f"sawii/sync starting — port={PORT} model={MODEL}", flush=True)
+    import threading
+    print(f"sawii/sync starting — port={PORT} L={MODEL_L} R={MODEL_R}", flush=True)
 
     threading.Thread(target=_start_loop, daemon=True).start()
     while _loop is None:
