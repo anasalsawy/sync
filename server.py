@@ -1,12 +1,11 @@
-"""sawii/sync HTTP server — concurrent multi-lobe architecture.
+"""sawii/sync HTTP server — non-blocking L/R architecture.
 
-Each turn fires L, R, and B as three independent concurrent NDIF calls
-via asyncio.gather. They run simultaneously on the remote cluster.
-Between turns they share context through a rolling history dict.
+L (conversation) answers every user message immediately.
+R (execution) runs as a background offspring — never blocks L.
+B (memory) spawns per-turn, feeds context back to L.
 
-POST /v1/chat
-  {"message": "...", "max_tokens": 64}
-  → {"reply": "..."}
+POST /v1/chat  {"message": "...", "max_tokens": 64}  → {"reply": "..."}
+GET  /health   → {"status": "ok"}
 """
 from __future__ import annotations
 
@@ -17,7 +16,7 @@ import re
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from ndif import NDIFChannels, LobePrompt, Generation
+from ndif import NDIFChannels, NDIFOffspring, LobePrompt, SharedState, Generation
 from memory_store import WorkingMemory, EpisodicMemory
 
 MODEL = os.environ.get("NDIF_MODEL", "Qwen/Qwen3.8-27B")
@@ -26,28 +25,30 @@ DEFAULT_MAX_NEW_TOKENS = int(os.environ.get("NDIF_MAX_NEW_TOKENS", 64))
 HARD_MAX_NEW_TOKENS = int(os.environ.get("NDIF_HARD_MAX_NEW_TOKENS", 256))
 
 _working_mem = WorkingMemory(maxlen=20)
-_episodic_mem = EpisodicMemory(os.environ.get("EPISODIC_DB", "episodic.db"))
+_history: list[tuple[str, str]] = []
 
-# Shared context between turns — each lobe reads the others' last output
-_ctx: dict[str, str] = {"L": "", "R": "", "B": ""}
-_history: list[tuple[str, str]] = []  # [(role, text), ...]
+# Shared state hub — R writes here, L reads it
+_shared: SharedState | None = None
+_channels: NDIFChannels | None = None      # L's inference engine
+_offspring: NDIFOffspring | None = None    # R/B's inference engine
+_r_handle = None                           # current R task handle (may be running)
 
-# One NDIFChannels instance is stateless per call — safe to share across lobes
-_channels: NDIFChannels | None = None
-_channels_lock = asyncio.Lock()
-
-# asyncio event loop running in background thread for the HTTP server
 _loop: asyncio.AbstractEventLoop | None = None
+_init_lock = asyncio.Lock()
 
 
-def get_channels() -> NDIFChannels:
-    global _channels
-    if _channels is None:
-        _channels = NDIFChannels(model_name=MODEL)
-    return _channels
+async def _ensure_init():
+    global _shared, _channels, _offspring
+    async with _init_lock:
+        if _channels is None:
+            _channels = NDIFChannels(model_name=MODEL)
+        if _offspring is None:
+            _offspring = NDIFOffspring(model_name=MODEL)
+        if _shared is None:
+            _shared = SharedState()
 
 
-_STOP_MARKERS = ("\nuser:", "\nassistant:", "\nUser:", "\nAssistant:")
+_STOP = ("\nuser:", "\nassistant:", "\nUser:", "\nAssistant:")
 
 
 def _clean(text: str) -> str:
@@ -55,7 +56,7 @@ def _clean(text: str) -> str:
     if "<think>" in text:
         text = text.split("<think>", 1)[0]
     cut = len(text)
-    for m in _STOP_MARKERS:
+    for m in _STOP:
         i = text.find(m)
         if i != -1:
             cut = min(cut, i)
@@ -63,79 +64,65 @@ def _clean(text: str) -> str:
 
 
 def _l_prompt(message: str) -> str:
-    """L: conversation lobe — replies to the user."""
     history = "\n".join(f"{r}: {t}" for r, t in _history[-8:])
-    r_ctx = f"\n[R is executing: {_ctx['R']}]" if _ctx["R"] else ""
-    b_ctx = f"\n[Memory: {_ctx['B']}]" if _ctx["B"] else ""
-    return (
-        f"{history}\n{r_ctx}{b_ctx}\nuser: {message}\nassistant:"
-    ).strip()
+    # Read R's latest status from shared state (non-blocking)
+    r_state = _shared.get_offspring("R") if _shared else None
+    r_ctx = f"\n[R is working: {r_state.text_so_far[:120]}]" if (r_state and r_state.text_so_far) else ""
+    return f"{history}{r_ctx}\nuser: {message}\nassistant:".strip()
 
 
 def _r_prompt(message: str) -> str:
-    """R: execution lobe — decides what action to take."""
     history = "\n".join(f"{r}: {t}" for r, t in _history[-4:])
     return (
         f"{history}\nuser request: {message}\n"
-        f"[Determine what action or task to execute, if any. "
-        f"Respond with the action or 'none'.]\nexecution:"
+        f"[Execute any needed action for this request. Be thorough.]\nexecution:"
     ).strip()
 
 
-def _b_prompt(message: str) -> str:
-    """B: memory lobe — surfaces relevant context."""
-    history = "\n".join(f"{r}: {t}" for r, t in _history[-4:])
-    return (
-        f"{history}\nuser: {message}\n"
-        f"[Recall any relevant memory or context for this request.]\nmemory:"
-    ).strip()
+async def _handle_turn(message: str, max_tokens: int) -> str:
+    global _r_handle
 
+    await _ensure_init()
 
-async def _run_lobe(lobe: str, prompt: str, max_tokens: int) -> Generation:
-    channels = get_channels()
-    return await channels.generate(
-        [LobePrompt(lobe=lobe, text=prompt)],
+    # Spawn R as a background task — does NOT block L
+    # Cancel previous R if still running (new message supersedes old task)
+    if _r_handle is not None and not _r_handle.task.done():
+        _r_handle.task.cancel()
+
+    _r_handle = _offspring.spawn(
+        LobePrompt(lobe="R", text=_r_prompt(message)),
+        _shared,
         max_new_tokens=max_tokens,
-        speaker=lobe,
+    )
+    # R is now running in the background — L does not wait for it
+
+    # L answers immediately
+    l_gen: Generation = await _channels.generate(
+        [LobePrompt(lobe="L", text=_l_prompt(message))],
+        max_new_tokens=max_tokens,
+        speaker="L",
+        shared=_shared,
     )
 
-
-async def _turn(message: str, max_tokens: int) -> str:
-    """Fire L, R, B concurrently. Return L's reply."""
-    l_gen, r_gen, b_gen = await asyncio.gather(
-        _run_lobe("L", _l_prompt(message), max_tokens),
-        _run_lobe("R", _r_prompt(message), max_tokens // 2),
-        _run_lobe("B", _b_prompt(message), max_tokens // 2),
-        return_exceptions=True,
-    )
-
-    # Extract text, tolerating lobe failures
-    l_text = _clean(l_gen.text) if isinstance(l_gen, Generation) else ""
-    r_text = _clean(r_gen.text) if isinstance(r_gen, Generation) else ""
-    b_text = _clean(b_gen.text) if isinstance(b_gen, Generation) else ""
-
+    l_text = _clean(l_gen.text)
     if not l_text:
-        raise RuntimeError(f"L lobe failed: {l_gen}")
+        raise RuntimeError("L lobe returned empty reply")
 
-    # Update shared context for next turn
-    _ctx["L"] = l_text
-    _ctx["R"] = r_text
-    _ctx["B"] = b_text
     _history.append(("user", message))
     _history.append(("assistant", l_text))
     if len(_history) > 40:
         _history[:] = _history[-40:]
 
-    # Persist memory snapshot
-    if isinstance(l_gen, Generation) and l_gen.tier1:
+    if l_gen.tier1:
         _working_mem.save(l_gen.tier1, summary=message[:80])
 
     return l_text
 
 
-def _run_turn_sync(message: str, max_tokens: int) -> str:
-    """Run the async turn on the background event loop, block until done."""
-    fut = asyncio.run_coroutine_threadsafe(_turn(message, max_tokens), _loop)
+def _run_sync(message: str, max_tokens: int) -> str:
+    fut = asyncio.run_coroutine_threadsafe(
+        _handle_turn(message, max_tokens), _loop
+    )
     return fut.result(timeout=300)
 
 
@@ -153,11 +140,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/v1/chat":
             self._json(404, {"error": "not found"})
             return
-
         length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length)
         try:
-            data = json.loads(body)
+            data = json.loads(self.rfile.read(length))
         except Exception:
             self._json(400, {"error": "invalid json"})
             return
@@ -168,15 +153,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            max_new = int(data.get("max_tokens", DEFAULT_MAX_NEW_TOKENS))
+            max_new = max(1, min(int(data.get("max_tokens", DEFAULT_MAX_NEW_TOKENS)),
+                                 HARD_MAX_NEW_TOKENS))
         except (TypeError, ValueError):
             self._json(400, {"error": "max_tokens must be an integer"})
             return
-        max_new = max(1, min(max_new, HARD_MAX_NEW_TOKENS))
 
         try:
-            reply = _run_turn_sync(message, max_new)
-            self._json(200, {"reply": reply})
+            self._json(200, {"reply": _run_sync(message, max_new)})
         except Exception as e:
             traceback.print_exc()
             self._json(500, {"error": str(e)})
@@ -198,23 +182,12 @@ def _start_loop():
 
 
 if __name__ == "__main__":
-    import threading
-    print(f"sawii/sync starting on port {PORT}, model={MODEL}", flush=True)
+    import threading, time
+    print(f"sawii/sync starting — port={PORT} model={MODEL}", flush=True)
 
-    loop_thread = threading.Thread(target=_start_loop, daemon=True)
-    loop_thread.start()
-
-    # Wait for loop to be ready
-    import time
+    threading.Thread(target=_start_loop, daemon=True).start()
     while _loop is None:
         time.sleep(0.01)
-
-    try:
-        get_channels()
-        print("model channels ready", flush=True)
-    except Exception:
-        traceback.print_exc()
-        print("channels init failed; will retry on first request", flush=True)
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.serve_forever()
