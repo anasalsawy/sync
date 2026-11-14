@@ -83,6 +83,7 @@ from nnsight import TransformersModel
 from transformers import AutoTokenizer
 
 from runtime import Decision, Demand, Exchange
+from vision_buffer import VisionBuffer
 
 # Default channel width per peer, in token slots.
 SLOTS_PER_PEER = 4
@@ -158,6 +159,92 @@ class OffspringGeneration:
     text: str
     token_ids: list[int] = field(default_factory=list)
     slot_act: Any = None
+
+
+@dataclass
+class OffspringState:
+    """Live state shared from an offspring lobe back to the main lobes.
+
+    Written by the offspring after each pass. Main lobes read this at the top
+    of their next generate() call and inject it into the slot band for the
+    matching lobe name so all main lobes can see what every offspring is doing
+    in real time — no polling, no waiting for the offspring to finish.
+    """
+    lobe: str                        # e.g. "R1", "R2"
+    text_so_far: str = ""            # partial decoded text this pass
+    tier1: dict[int, Any] = field(default_factory=dict)   # latest activations
+    done: bool = False               # True when offspring has finished
+    seq: int = 0                     # monotonic update counter
+
+
+class SharedState:
+    """Central shared-state hub: main↔offspring bidirectional live feed.
+
+    Main lobes write their tier1 here after each pass.
+    Offspring write their OffspringState here after each step.
+    Everyone reads everyone else — the one-shared-mind rule holds.
+
+    Thread-safe for asyncio: all mutations are single assignments.
+    """
+
+    def __init__(self) -> None:
+        # main lobe tier1: {lobe_name: {layer_idx: tensor}}
+        self._main: dict[str, dict[int, Any]] = {}
+        # offspring state: {lobe_name: OffspringState}
+        self._offspring: dict[str, OffspringState] = {}
+        # vision buffer: live V frames for fast screen-state sharing
+        self.vision: VisionBuffer = VisionBuffer()
+
+    # ---- main lobe writes ------------------------------------------------
+
+    def update_main(self, tier1: dict[str, dict[int, Any]]) -> None:
+        """Called by NDIFChannels after each generate(). Pushes V to vision buffer."""
+        self._main.update(tier1)
+        if "V" in tier1:
+            self.vision.push(tier1["V"])
+
+    # ---- offspring writes ------------------------------------------------
+
+    def update_offspring(self, state: OffspringState) -> None:
+        self._offspring[state.lobe] = state
+
+    def mark_done(self, lobe: str) -> None:
+        s = self._offspring.get(lobe)
+        if s is not None:
+            self._offspring[lobe] = OffspringState(
+                lobe=s.lobe, text_so_far=s.text_so_far,
+                tier1=s.tier1, done=True, seq=s.seq + 1,
+            )
+
+    # ---- reads -----------------------------------------------------------
+
+    def main_tier1(self, names: list[str] | None = None) -> dict[str, dict[int, Any]]:
+        """Current main lobe activations, optionally filtered to `names`."""
+        if names is None:
+            return dict(self._main)
+        return {n: self._main[n] for n in names if n in self._main}
+
+    def offspring_states(self) -> dict[str, OffspringState]:
+        return dict(self._offspring)
+
+    def active_offspring(self) -> list[str]:
+        return [n for n, s in self._offspring.items() if not s.done]
+
+    def latest_vision(self) -> dict[int, Any] | None:
+        return self.vision.latest()
+
+
+@dataclass
+class OffspringHandle:
+    """Live handle to a spawned offspring task.
+
+    Returned by NDIFOffspring.spawn(). The main loop uses this to:
+    - check if the offspring is still running (.task.done())
+    - read its latest partial output (.state_ref in SharedState)
+    - cancel it if a veto fires or the task is superseded
+    """
+    lobe: str
+    task: asyncio.Task
 
 
 def entropy_demands(
@@ -516,10 +603,18 @@ class NDIFChannels:
 
     async def generate(self, prompts: list[LobePrompt], max_new_tokens: int = 64,
                        attention_demands: dict[str, tuple[str, ...]] | None = None,
-                       speaker: str = "L") -> Generation:
-        """Async wrapper around generate_sync (one remote job per reply)."""
-        return await asyncio.to_thread(self.generate_sync, prompts, max_new_tokens,
-                                       attention_demands, speaker)
+                       speaker: str = "L",
+                       shared: SharedState | None = None) -> Generation:
+        """Async wrapper around generate_sync (one remote job per reply).
+
+        If `shared` is provided, tier1 snapshots are pushed to SharedState
+        after the pass so offspring and V's vision buffer stay current.
+        """
+        result = await asyncio.to_thread(self.generate_sync, prompts, max_new_tokens,
+                                         attention_demands, speaker)
+        if shared is not None:
+            shared.update_main(result.tier1)
+        return result
 
     async def reliance(self, prompts: list[LobePrompt], bands: int = 3,
                        attention_demands: dict[str, tuple[str, ...]] | None = None):
@@ -587,43 +682,32 @@ class NDIFChannels:
 # ===========================================================================
 
 class NDIFOffspring:
-    """Second-tier concurrent execution lobes.
+    """Second-tier concurrent execution lobes with live bidirectional sharing.
 
-    Offspring lobes (R1, R2, R3, etc.) receive internal activations from main
-    lobes as read-only context injected into their slot bands. They:
-      - Do NOT write back to main lobes (true concurrency, no feedback loop)
-      - Do NOT share cross-attention with each other (fully independent)
-      - Run as separate concurrent NDIF jobs via asyncio.gather
+    Offspring lobes (R1, R2, R3, ...) are spawned on-demand by the main lobes
+    via spawn(). The number of lanes is not fixed — zero, one, or ten depending
+    on what the task needs. Lanes are killed when done or when C vetoes them.
 
-    Architecture:
-      Main pass (NDIFChannels): L, R, B, V, C share attention + activations
-      Offspring pass (NDIFOffspring): R1/R2/R3 receive main tier1 snapshots
-                                      injected into early slot bands (read-only)
+    Information flow (all live, no polling):
+      Main → offspring:  tier1 snapshots injected into offspring slot bands
+                         at every layer within INJECT_FIRST..INJECT_LAST.
+      V → offspring:     VisionBuffer.latest() checked at each inject layer —
+                         if V finished a new screen capture, offspring picks it
+                         up on the very next layer without waiting.
+      Offspring → main:  OffspringState written to SharedState after each pass;
+                         main lobes read it at the top of their next generate().
 
-    Concurrency: all offspring launch simultaneously as asyncio tasks — each
-    is an independent NDIF job that runs in parallel on the remote GPUs.
+    Spawn-on-demand:
+      spawn(prompt, shared) → OffspringHandle
+      The handle holds the asyncio.Task so the caller can cancel it, and the
+      lobe name so SharedState can be queried for its partial output.
 
-    Usage:
-        # 1. Run main pass to get tier1 snapshots:
-        main_gen = await channels.generate(main_prompts)
-
-        # 2. Launch concurrent offspring branches:
-        offspring = NDIFOffspring(model_name="Qwen/Qwen3.8-27B")
-        results = await offspring.run_concurrent(
-            offspring_prompts=[
-                LobePrompt("R1", "Explore option A: ..."),
-                LobePrompt("R2", "Explore option B: ..."),
-                LobePrompt("R3", "Explore option C: ..."),
-            ],
-            main_tier1=main_gen.tier1,
-            main_lobe_names=["L", "R", "B"],
-        )
-        for r in results:
-            print(r.lobe, r.text)
+    Design rule: offspring never modify main lobe activations during the main
+    forward pass. The feedback channel is SharedState (between passes), not
+    inside the trace graph. This keeps each pass deterministic and the main
+    mind fully in control.
     """
 
-    # Layer range for injecting main lobe context into offspring.
-    # Inject early-to-mid: offspring get grounded context before forming their path.
     INJECT_FIRST = 2
     INJECT_LAST = 32
 
@@ -642,18 +726,27 @@ class NDIFOffspring:
         if tok.pad_token is None:
             tok.pad_token = tok.eos_token
 
-    def _generate_offspring_sync(self, prompt: LobePrompt,
-                                  main_tier1: dict[str, dict[int, Any]],
-                                  main_lobe_names: list[str],
-                                  max_new_tokens: int = 64) -> OffspringGeneration:
-        """Single offspring lobe: inject main activations, generate independently.
+    # ------------------------------------------------------------------
+    # Core: one offspring pass with live state injection
+    # ------------------------------------------------------------------
 
-        main_tier1: {lobe_name: {layer_idx: tensor(slots, hidden)}}
-                    — the Tier-1 snapshots produced by the main NDIFChannels pass.
+    def _generate_offspring_sync(
+        self,
+        prompt: LobePrompt,
+        shared: "SharedState",
+        main_lobe_names: list[str],
+        max_new_tokens: int = 64,
+    ) -> OffspringGeneration:
+        """Single offspring lobe: inject current SharedState, generate, write back.
 
-        We inject each main lobe's activations into the offspring's slot band
-        at the corresponding layers (read-only: offspring writes nothing back).
-        The grad graph never connects back to the main pass.
+        At each inject layer we pull the freshest available snapshot:
+          - For V: VisionBuffer.latest() — updated whenever V completes a pass.
+            This is what makes browser/computer use fast: a new screen frame
+            lands in the buffer mid-offspring-pass and is picked up immediately.
+          - For other main lobes: their most recent tier1 snapshot from SharedState.
+
+        After the pass, OffspringState is written back so main lobes see this
+        offspring's partial output on their next pass.
         """
         model = self.model
         layers = self.layers
@@ -662,16 +755,19 @@ class NDIFOffspring:
         default_w = self.slots
         num_main = len(main_lobe_names)
 
-        # Build offspring prompt with slot bands for each main lobe
         band = SLOT_TOKEN * (default_w * num_main)
         text = band + " " + prompt.text
         texts = [text]
 
-        # Slot offsets per main lobe in this offspring's prompt
         slot_offsets = {name: i * default_w for i, name in enumerate(main_lobe_names)}
-
         inject_first = self.INJECT_FIRST
         inject_last = min(self.INJECT_LAST, len(layers) - 2)
+
+        # Snapshot all main tier1 once before entering the trace — avoids
+        # reading SharedState inside the graph (not safe with nnsight proxies).
+        # V is the exception: we re-read the vision buffer at each layer step
+        # to pick up any new frame that arrived while we were running.
+        main_snap = shared.main_tier1(main_lobe_names)
 
         slot_act = out = None
 
@@ -683,20 +779,20 @@ class NDIFOffspring:
 
                 if index <= inject_last:
                     for lobe_name in main_lobe_names:
-                        tier1_for_lobe = main_tier1.get(lobe_name, {})
-                        if not tier1_for_lobe:
+                        # V: always use the absolute latest vision frame
+                        if lobe_name == "V":
+                            snap_dict = shared.latest_vision()
+                        else:
+                            snap_dict = main_snap.get(lobe_name)
+                        if not snap_dict:
                             continue
-                        # Find nearest available snapshot at or before this layer
+
                         snap_at = max(
-                            (sl for sl in tier1_for_lobe if sl <= index),
-                            default=None,
+                            (sl for sl in snap_dict if sl <= index),
+                            default=min(snap_dict.keys()),
                         )
-                        if snap_at is None:
-                            # Use earliest available snap if none before this layer
-                            snap_at = min(tier1_for_lobe.keys())
-                        snap = tier1_for_lobe[snap_at]  # [slots, hidden]
+                        snap = snap_dict[snap_at]
                         offset = slot_offsets[lobe_name]
-                        # Read-only inject: main snapshot → offspring slot band
                         layer.output[0, offset:offset + default_w, :] = snap[:default_w, :]
 
             mid = len(layers) // 2
@@ -722,41 +818,97 @@ class NDIFOffspring:
         return OffspringGeneration(lobe=prompt.lobe, text=text_out,
                                    token_ids=trimmed, slot_act=slot_act)
 
-    async def _generate_one(self, prompt: LobePrompt,
-                             main_tier1: dict[str, dict[int, Any]],
-                             main_lobe_names: list[str],
-                             max_new_tokens: int = 64) -> OffspringGeneration:
-        """Async wrapper — each offspring runs in its own thread (independent NDIF job)."""
-        return await asyncio.to_thread(
-            self._generate_offspring_sync, prompt, main_tier1, main_lobe_names, max_new_tokens
-        )
+    # ------------------------------------------------------------------
+    # Spawn-on-demand: returns a live handle, not a future result
+    # ------------------------------------------------------------------
 
-    async def run_concurrent(self,
-                              offspring_prompts: list[LobePrompt],
-                              main_tier1: dict[str, dict[int, Any]],
-                              main_lobe_names: list[str] | None = None,
-                              max_new_tokens: int = 64) -> list[OffspringGeneration]:
-        """Launch all offspring lobes concurrently as independent NDIF jobs.
+    async def _run_and_report(
+        self,
+        prompt: LobePrompt,
+        shared: "SharedState",
+        main_lobe_names: list[str],
+        max_new_tokens: int,
+    ) -> OffspringGeneration:
+        """Run the offspring pass and push its result into SharedState."""
+        try:
+            gen = await asyncio.to_thread(
+                self._generate_offspring_sync,
+                prompt, shared, main_lobe_names, max_new_tokens,
+            )
+            # Write final state back so main lobes see the completed output
+            prev_seq = 0
+            existing = shared.offspring_states().get(prompt.lobe)
+            if existing is not None:
+                prev_seq = existing.seq
+            shared.update_offspring(OffspringState(
+                lobe=prompt.lobe,
+                text_so_far=gen.text,
+                tier1={},
+                done=True,
+                seq=prev_seq + 1,
+            ))
+            return gen
+        except asyncio.CancelledError:
+            shared.mark_done(prompt.lobe)
+            raise
 
-        Each offspring is a separate asyncio task — they run in parallel.
-        None of them communicate with each other or write back to main lobes.
+    def spawn(
+        self,
+        prompt: LobePrompt,
+        shared: "SharedState",
+        main_lobe_names: list[str] | None = None,
+        max_new_tokens: int = 64,
+    ) -> OffspringHandle:
+        """Spawn one offspring lane on-demand. Returns immediately with a handle.
+
+        The handle holds the asyncio.Task so the caller can:
+          - await handle.task  to get the OffspringGeneration when done
+          - handle.task.cancel()  to kill it (C veto, task superseded, etc.)
+          - check handle.task.done()  to see if it finished
+
+        SharedState is updated both ways:
+          - offspring reads latest main/V state at every inject layer
+          - offspring writes its final text back when done
 
         Args:
-            offspring_prompts: list of LobePrompt for each branch (R1, R2, R3, ...)
-            main_tier1: tier1 snapshots from the main NDIFChannels.generate() call
-            main_lobe_names: which main lobes to inject (default: all keys in tier1)
-            max_new_tokens: generation budget per offspring
+            prompt: the offspring's identity and goal (lobe="R1", text="...")
+            shared: the SharedState hub connecting all lobes
+            main_lobe_names: which main lobes to inject (default: all in shared)
+            max_new_tokens: generation budget
 
         Returns:
-            list of OffspringGeneration in the same order as offspring_prompts
+            OffspringHandle with .lobe and .task
         """
         if main_lobe_names is None:
-            main_lobe_names = list(main_tier1.keys())
+            main_lobe_names = list(shared.main_tier1().keys())
 
-        tasks = [
-            asyncio.create_task(
-                self._generate_one(p, main_tier1, main_lobe_names, max_new_tokens)
-            )
+        # Register as active immediately so main lobes know it exists
+        shared.update_offspring(OffspringState(lobe=prompt.lobe, done=False))
+
+        task = asyncio.create_task(
+            self._run_and_report(prompt, shared, main_lobe_names, max_new_tokens),
+            name=f"offspring-{prompt.lobe}",
+        )
+        return OffspringHandle(lobe=prompt.lobe, task=task)
+
+    # ------------------------------------------------------------------
+    # Convenience: spawn N lanes at once and wait for all
+    # ------------------------------------------------------------------
+
+    async def run_concurrent(
+        self,
+        offspring_prompts: list[LobePrompt],
+        shared: "SharedState",
+        main_lobe_names: list[str] | None = None,
+        max_new_tokens: int = 64,
+    ) -> list[OffspringGeneration]:
+        """Spawn all offspring concurrently and wait for all to finish.
+
+        Use spawn() instead when you want non-blocking handles (e.g. to cancel
+        individual lanes mid-flight or read partial results).
+        """
+        handles = [
+            self.spawn(p, shared, main_lobe_names, max_new_tokens)
             for p in offspring_prompts
         ]
-        return list(await asyncio.gather(*tasks))
+        return list(await asyncio.gather(*(h.task for h in handles)))
