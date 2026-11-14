@@ -46,7 +46,8 @@ _shared: SharedState = SharedState()
 # with separate queues on NDIF
 _channels_coupled: NDIFChannels | None = None   # for batched L+R+B passes
 _offspring_engine: NDIFOffspring | None = None  # for decoupled R background tasks
-_r_handle = None                                # active background R task
+_r_handles: dict[str, any] = {}                 # active R lanes: {lane_id: handle}
+_r_counter = 0                                  # increments per spawned lane
 _mode = "coupled"                               # "coupled" | "decoupled"
 
 _loop: asyncio.AbstractEventLoop | None = None
@@ -79,15 +80,25 @@ async def _ensure_init():
 
 
 def _has_active_r() -> bool:
-    return _r_handle is not None and not _r_handle.task.done()
+    return any(not h.task.done() for h in _r_handles.values())
+
+
+def _reap_done_lanes():
+    """Remove completed lanes from the pool."""
+    done = [lid for lid, h in _r_handles.items() if h.task.done()]
+    for lid in done:
+        del _r_handles[lid]
 
 
 def _r_status() -> str:
-    """Get R's latest text from SharedState — non-blocking."""
-    state = _shared.offspring_states().get("R")
-    if state and state.text_so_far:
-        return state.text_so_far[:200]
-    return ""
+    """Summarise all active R lanes from SharedState — non-blocking."""
+    states = _shared.offspring_states()
+    parts = []
+    for lid in list(_r_handles.keys()):
+        state = states.get(lid)
+        if state and state.text_so_far:
+            parts.append(f"{lid}: {state.text_so_far[:100]}")
+    return "; ".join(parts) if parts else ""
 
 
 def _build_history_str(n: int = 8) -> str:
@@ -143,19 +154,21 @@ async def _coupled_turn(message: str, max_tokens: int) -> str:
 
 
 async def _decoupled_turn(message: str, max_tokens: int) -> str:
-    """L answers immediately. R runs as background offspring."""
-    global _r_handle, _mode
+    """L answers immediately. R spawns as a new concurrent lane."""
+    global _r_counter, _mode
 
-    # Cancel stale R if running
-    if _has_active_r():
-        _r_handle.task.cancel()
+    # Reap finished lanes before spawning
+    _reap_done_lanes()
 
-    # Spawn R in background — returns immediately
-    _r_handle = _offspring_engine.spawn(
-        LobePrompt(lobe="R", text=_r_prompt(message)),
+    # Spawn a new R lane — does NOT cancel existing lanes
+    _r_counter += 1
+    lane_id = f"R{_r_counter}"
+    handle = _offspring_engine.spawn(
+        LobePrompt(lobe=lane_id, text=_r_prompt(message)),
         _shared,
         max_new_tokens=max_tokens,
     )
+    _r_handles[lane_id] = handle
 
     # L answers without waiting for R
     gen: Generation = await _channels_coupled.generate(
