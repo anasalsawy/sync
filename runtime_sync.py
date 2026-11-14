@@ -1,31 +1,30 @@
-"""runtime_sync.py — Spawn-aware orchestrator for the NDIF multi-lobe system.
+"""runtime_sync.py — Thin orchestrator for the NDIF multi-lobe system.
 
-Ties NDIFChannels (main 5-lobe pass) + NDIFOffspring (concurrent second-tier
-lanes) + SharedState (bidirectional live feed) into one async loop.
+Design principles:
+  1. No role-play, no stage directions, no system prompts.
+     Every lobe receives the raw user input identically. Character and routing
+     emerge from the asymmetric wiring + norm-gated channels, not from prompts.
 
-The main mind (L, R, B, V, C) runs every turn. After each main pass:
-  1. L's output entropy is checked. High entropy → ambiguous, spawn more lanes.
-  2. R's demand flags are checked. demand.split → spawn parallel exploration.
-  3. Active offspring results are harvested and injected as extra context for L.
-  4. C can veto in-flight offspring tasks before the next main pass.
+  2. Spawn signal comes from channel divergence, not L's entropy.
+     When R and C activate different expert paths on the same input, that is
+     genuine disagreement — spawn parallel exploration. L's entropy is a
+     side-effect; R↔C reliance divergence is the cause.
 
-Usage — single-turn helper:
-    from runtime_sync import SyncRuntime
-    rt = SyncRuntime()
-    reply = await rt.turn(user_message)
-    print(reply)
+  3. Offspring state is live for all lobes, not just V.
+     SharedState is updated incrementally. Non-V lobes get a new snapshot
+     pushed after each pass so the next offspring inject sees fresh state,
+     not a frozen pre-pass snapshot.
 
-Usage — long-running session:
-    rt = SyncRuntime()
-    async for reply in rt.session(messages):
-        print(reply)
+  4. MoE target: Qwen3-30B-A3B (30B params, ~3B active/token).
+     Two levels of emergent routing stack: expert routing within each lobe,
+     channel routing between lobes. They compound — specialised lobes emit
+     more precise channel signals, activating more targeted expert subsets
+     in receiving lobes.
 """
 from __future__ import annotations
 
 import asyncio
-import math
-from dataclasses import dataclass, field
-from typing import AsyncIterator
+from dataclasses import dataclass
 
 from ndif import (
     NDIFChannels,
@@ -34,34 +33,68 @@ from ndif import (
     SharedState,
     OffspringHandle,
     Generation,
-    ENTROPY_DEMAND_THRESHOLD,
 )
 
 
 # ---------------------------------------------------------------------------
-# Spawn policy
+# Spawn policy — driven by R↔C channel divergence
 # ---------------------------------------------------------------------------
 
-# Maximum concurrent offspring lanes at any one time.
+# Cosine distance between R and C's tier1 at the mid-stack snapshot layer
+# that triggers spawning a parallel exploration lane.
+DIVERGENCE_SPAWN_THRESHOLD = 0.25   # tunable; 0 = identical, 1 = orthogonal
+
+# Each additional DIVERGENCE_STEP above threshold spawns one more lane.
+DIVERGENCE_STEP = 0.10
+
 MAX_OFFSPRING = 10
 
-# How many tokens of entropy headroom before we spawn another lane.
-# (entropy > ENTROPY_DEMAND_THRESHOLD already triggers one; each additional
-#  ENTROPY_STEP above that threshold spawns one more, up to MAX_OFFSPRING)
-ENTROPY_STEP = 0.5
+# The snapshot layer used to measure R↔C divergence (must be in _SNAP_LAYERS).
+DIVERGENCE_SNAP_LAYER = 18
 
-# Lobe name prefix for auto-spawned exploration lanes.
-EXPLORE_PREFIX = "R"
 
+def _cosine_distance(a, b) -> float:
+    """1 - cosine_similarity, in [0, 2]. Returns 1.0 on zero vectors."""
+    try:
+        import torch
+        a = a.float().flatten()
+        b = b.float().flatten()
+        denom = (a.norm() * b.norm()).item()
+        if denom < 1e-8:
+            return 1.0
+        return float(1.0 - (a @ b).item() / denom)
+    except Exception:
+        return 0.0
+
+
+def _spawn_count(tier1: dict) -> int:
+    """Decide how many lanes to spawn from R↔C divergence in tier1 snapshots."""
+    r_snap = tier1.get("R", {}).get(DIVERGENCE_SNAP_LAYER)
+    c_snap = tier1.get("C", {}).get(DIVERGENCE_SNAP_LAYER)
+    if r_snap is None or c_snap is None:
+        return 0
+    # Mean across slots → representative vector for each lobe at this layer
+    r_vec = r_snap.float().mean(dim=0)
+    c_vec = c_snap.float().mean(dim=0)
+    dist = _cosine_distance(r_vec, c_vec)
+    if dist <= DIVERGENCE_SPAWN_THRESHOLD:
+        return 0
+    excess = dist - DIVERGENCE_SPAWN_THRESHOLD
+    return min(1 + int(excess / DIVERGENCE_STEP), MAX_OFFSPRING)
+
+
+# ---------------------------------------------------------------------------
+# TurnResult
+# ---------------------------------------------------------------------------
 
 @dataclass
 class TurnResult:
-    """Everything the caller needs after one full turn."""
     text: str                        # L's spoken reply
     generation: Generation           # full main-pass result
-    offspring_texts: dict[str, str]  # {lobe: text} for all completed lanes
+    offspring_texts: dict[str, str]  # completed offspring outputs this turn
     spawned: list[str]               # lobe names spawned this turn
-    cancelled: list[str]             # lobe names cancelled (C veto)
+    cancelled: list[str]             # lobe names cancelled (C veto / error)
+    rc_divergence: float             # R↔C cosine distance that drove spawning
 
 
 # ---------------------------------------------------------------------------
@@ -69,18 +102,22 @@ class TurnResult:
 # ---------------------------------------------------------------------------
 
 class SyncRuntime:
-    """Stateful async runtime for the 5+N lobe system.
+    """Stateful async runtime — thin wrapper, emergent routing does the work.
 
-    Manages:
-      - One NDIFChannels instance (main 5-lobe mind)
-      - One NDIFOffspring instance (shared; re-used across turns)
-      - One SharedState hub (lives for the whole session)
-      - Active offspring handle table (killed or awaited each turn)
+    The only job of this class is:
+      - feed raw input to all 5 lobes equally
+      - measure R↔C divergence after each pass
+      - spawn/kill offspring lanes accordingly
+      - harvest completed offspring and fold their text into the next pass
+        as plain additional input (not role-tagged, not stage-directed)
     """
+
+    # Default to MoE variant: 30B params, ~3B active/token, faster than 7B dense
+    DEFAULT_MODEL = "Qwen/Qwen3-30B-A3B"
 
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen3.8-27B",
+        model_name: str = DEFAULT_MODEL,
         max_new_tokens: int = 64,
         max_offspring: int = MAX_OFFSPRING,
     ) -> None:
@@ -89,151 +126,83 @@ class SyncRuntime:
         self.shared = SharedState()
         self.max_new_tokens = max_new_tokens
         self.max_offspring = max_offspring
-
-        # Active handles from the previous turn (may still be running)
         self._handles: list[OffspringHandle] = []
-        self._turn_counter: int = 0
+        self._turn: int = 0
 
     # ------------------------------------------------------------------
-    # Spawn-count policy
+    # Harvest + C-veto
     # ------------------------------------------------------------------
 
-    def _how_many_to_spawn(self, generation: Generation) -> int:
-        """Decide how many new offspring lanes to spawn based on L's entropy."""
-        # Compute output entropy from L's logits
-        logits = generation.logits  # [vocab]
-        if logits is None:
-            return 0
-        probs = logits.softmax(dim=-1)
-        entropy = -(probs * (probs + 1e-9).log()).sum().item() / math.log(2)
-
-        if entropy <= ENTROPY_DEMAND_THRESHOLD:
-            return 0
-
-        # One lane per ENTROPY_STEP above the threshold
-        excess = entropy - ENTROPY_DEMAND_THRESHOLD
-        n = 1 + int(excess / ENTROPY_STEP)
-        # Also check demand flags from the main pass
-        if generation.auto_demands:
-            for lobe_name, widened_peers in generation.auto_demands.items():
-                if lobe_name == "R" and widened_peers:
-                    n = max(n, 2)   # R flagged split → at least 2 lanes
-        return min(n, self.max_offspring)
-
-    # ------------------------------------------------------------------
-    # C-veto: cancel lanes whose slot_act energy is suspiciously low
-    # ------------------------------------------------------------------
-
-    def _apply_c_veto(self, generation: Generation) -> list[str]:
-        """Cancel any active offspring that C's attention is ignoring.
-
-        Heuristic: if C's output logit for a lobe's slot band is below the
-        mean by >2σ, C is not attending to that lane → cancel it.
-        Returns list of cancelled lobe names.
-        """
-        cancelled = []
-        if not self._handles:
-            return cancelled
-        # Simple stub — in production, read C's tier1 slot energies and compare
-        # against offspring slot_act values captured in SharedState.
-        # For now: cancel any task that raised an exception (failed jobs).
-        still_active = []
+    def _harvest_and_veto(self) -> tuple[dict[str, str], list[str]]:
+        """Collect done offspring; cancel errored ones. Returns (results, cancelled)."""
+        results: dict[str, str] = {}
+        cancelled: list[str] = []
+        still_active: list[OffspringHandle] = []
         for h in self._handles:
             if h.task.done():
-                exc = h.task.exception() if not h.task.cancelled() else None
-                if exc is not None:
+                if h.task.cancelled() or h.task.exception() is not None:
                     cancelled.append(h.lobe)
+                else:
+                    results[h.lobe] = h.task.result().text
             else:
                 still_active.append(h)
         self._handles = still_active
-        return cancelled
+        return results, cancelled
 
     # ------------------------------------------------------------------
-    # Harvest completed offspring results
+    # Build prompts — raw input, no role labels
     # ------------------------------------------------------------------
 
-    def _harvest(self) -> dict[str, str]:
-        """Collect results from done offspring tasks. Remove from handle list."""
-        results: dict[str, str] = {}
-        still_active = []
-        for h in self._handles:
-            if h.task.done() and not h.task.cancelled():
-                try:
-                    gen = h.task.result()
-                    results[h.lobe] = gen.text
-                except Exception:
-                    pass   # C-veto or error — already removed above
-            else:
-                still_active.append(h)
-        self._handles = still_active
-        return results
-
-    # ------------------------------------------------------------------
-    # Build main-pass prompts
-    # ------------------------------------------------------------------
-
-    def _build_main_prompts(
-        self,
-        user_message: str,
-        offspring_context: dict[str, str],
-    ) -> list[LobePrompt]:
-        """Build the 5 main-lobe prompts, injecting any offspring results."""
-        ctx = ""
-        if offspring_context:
-            parts = [f"[{lobe}]: {text}" for lobe, text in offspring_context.items()]
-            ctx = "\nParallel exploration results:\n" + "\n".join(parts) + "\n"
-
+    def _prompts(self, user_input: str, offspring_ctx: dict[str, str]) -> list[LobePrompt]:
+        """All lobes get the same raw input. Offspring results appended as plain text."""
+        text = user_input
+        if offspring_ctx:
+            # Append without role labels — let the lobes interpret freely
+            extra = "\n\n" + "\n\n".join(offspring_ctx.values())
+            text = text + extra
         return [
-            LobePrompt("L", user_message + ctx),
-            LobePrompt("R", f"Execute: {user_message}"),
-            LobePrompt("B", f"Context for: {user_message}"),
-            LobePrompt("V", "Observe current visual state."),
-            LobePrompt("C", f"Verify: {user_message}"),
+            LobePrompt("L", text),
+            LobePrompt("R", text),
+            LobePrompt("B", text),
+            LobePrompt("V", text),
+            LobePrompt("C", text),
         ]
 
     # ------------------------------------------------------------------
     # Single turn
     # ------------------------------------------------------------------
 
-    async def turn(self, user_message: str) -> TurnResult:
-        """Run one full turn: main pass → spawn/cancel offspring → reply."""
-        self._turn_counter += 1
+    async def turn(self, user_input: str) -> TurnResult:
+        self._turn += 1
 
-        # 1. Cancel any timed-out offspring before the main pass
-        cancelled = self._apply_c_veto(generation=None)  # type: ignore[arg-type]
+        offspring_ctx, cancelled = self._harvest_and_veto()
 
-        # 2. Harvest offspring that finished during the previous turn
-        offspring_ctx = self._harvest()
-
-        # 3. Main 5-lobe pass
-        prompts = self._build_main_prompts(user_message, offspring_ctx)
         generation = await self.channels.generate(
-            prompts,
+            self._prompts(user_input, offspring_ctx),
             max_new_tokens=self.max_new_tokens,
             shared=self.shared,
         )
 
-        # 4. C-veto pass: cancel offspring that C is ignoring
-        cancelled += self._apply_c_veto(generation)
-
-        # 5. Spawn new offspring lanes based on entropy / R demand
-        n_spawn = self._how_many_to_spawn(generation)
+        # Spawn based on R↔C divergence
+        n = _spawn_count(generation.tier1)
         spawned: list[str] = []
-        for i in range(n_spawn):
-            lane_id = len(self._handles) + i + 1
-            lobe_name = f"{EXPLORE_PREFIX}{lane_id}"
-            goal = (
-                f"Explore branch {lane_id} for: {user_message[:200]}"
-                f"  [turn={self._turn_counter}]"
-            )
+        for i in range(n):
+            lane = f"R{len(self._handles) + i + 1}"
             handle = self.offspring_runner.spawn(
-                LobePrompt(lobe_name, goal),
+                LobePrompt(lane, user_input),   # same raw input, no framing
                 self.shared,
                 main_lobe_names=list(generation.tier1.keys()),
                 max_new_tokens=self.max_new_tokens,
             )
             self._handles.append(handle)
-            spawned.append(lobe_name)
+            spawned.append(lane)
+
+        rc_dist = _cosine_distance(
+            generation.tier1.get("R", {}).get(DIVERGENCE_SNAP_LAYER,
+                generation.tier1.get("R", {}).get(next(iter(generation.tier1.get("R", {1: None})), 1))),
+            generation.tier1.get("C", {}).get(DIVERGENCE_SNAP_LAYER,
+                generation.tier1.get("C", {}).get(next(iter(generation.tier1.get("C", {1: None})), 1))),
+        ) if generation.tier1.get("R") and generation.tier1.get("C") else 0.0
 
         return TurnResult(
             text=generation.text,
@@ -241,31 +210,17 @@ class SyncRuntime:
             offspring_texts=offspring_ctx,
             spawned=spawned,
             cancelled=cancelled,
+            rc_divergence=rc_dist,
         )
 
     # ------------------------------------------------------------------
-    # Session loop (async generator)
+    # Session loop
     # ------------------------------------------------------------------
 
-    async def session(self, messages: list[str]) -> AsyncIterator[TurnResult]:
-        """Drive a sequence of turns, yielding results as they complete."""
+    async def session(self, messages: list[str]):
         for msg in messages:
-            result = await self.turn(msg)
-            yield result
-        # Let any in-flight offspring finish or cancel them
+            yield await self.turn(msg)
         for h in self._handles:
             h.task.cancel()
         await asyncio.gather(*(h.task for h in self._handles), return_exceptions=True)
         self._handles.clear()
-
-    # ------------------------------------------------------------------
-    # Convenience: simple blocking call for one-shot use
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def run_once(cls, user_message: str, **kwargs) -> TurnResult:
-        """Synchronous wrapper for single-turn use from non-async contexts."""
-        async def _go():
-            rt = cls(**kwargs)
-            return await rt.turn(user_message)
-        return asyncio.run(_go())
