@@ -355,14 +355,15 @@ class NDIFChannels:
         texts = []
         for ri in range(count):
             text = prompts[ri].text
-            if prompts[ri].lobe == "L":
-                text = text.removesuffix("\\nassistant:")
-                text = tok.apply_chat_template(
-                    [{"role": "user", "content": text}],
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=False,
-                )
+            # All lobes need chat template so the model knows when to generate.
+            # This is structural formatting only — not a system prompt, no role labels.
+            text = text.removesuffix("\\nassistant:")
+            text = tok.apply_chat_template(
+                [{"role": "user", "content": text}],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
             texts.append(channel_prompt(
                 text,
                 peer_names_per_lobe[ri],
@@ -756,7 +757,13 @@ class NDIFOffspring:
         num_main = len(main_lobe_names)
 
         band = SLOT_TOKEN * (default_w * num_main)
-        text = band + " " + prompt.text
+        raw = tok.apply_chat_template(
+            [{"role": "user", "content": prompt.text}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        text = band + " " + raw
         texts = [text]
 
         slot_offsets = {name: i * default_w for i, name in enumerate(main_lobe_names)}
