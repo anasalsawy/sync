@@ -58,10 +58,11 @@ def _run_sync(message: str, max_tokens: int) -> str:
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        pass
+        print(f"[http] {fmt % args}", flush=True)
 
     def do_GET(self):
         if self.path == "/health":
+            print(f"[health] ok", flush=True)
             self._json(200, {"status": "ok", "model": MODEL})
         else:
             self._json(404, {"error": "not found"})
@@ -145,4 +146,10 @@ if __name__ == "__main__":
         time.sleep(0.01)
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    server.serve_forever()
+    print(f"sawii/sync HTTP server bound on 0.0.0.0:{PORT}", flush=True)
+    try:
+        server.serve_forever()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise
