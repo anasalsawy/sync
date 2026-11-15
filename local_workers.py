@@ -142,19 +142,41 @@ class HFBundle:
 
         self.model_name = model_name
         self.device = _device()
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name, trust_remote_code=True,
+        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        dtype = torch.float16 if self.device.type == "cuda" else torch.float32
+        # bf16 on modern NVIDIA; fp16 fallback; fp32 on CPU
+        if self.device.type == "cuda":
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        else:
+            dtype = torch.float32
         self.shared = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=dtype,
-        ).to(self.device)
+            model_name,
+            torch_dtype=dtype,
+            trust_remote_code=True,
+            device_map="auto" if self.device.type == "cuda" else None,
+        )
+        if self.device.type != "cuda":
+            self.shared = self.shared.to(self.device)
+        else:
+            # device_map=auto may shard; pin worker inputs to first param device
+            try:
+                self.device = next(self.shared.parameters()).device
+            except StopIteration:
+                pass
         self.shared.eval()
         self.embedder = None
         if embedder_model and embedder_model != model_name:
             self.embedder = AutoModelForCausalLM.from_pretrained(
-                embedder_model, torch_dtype=dtype,
-            ).to(self.device)
+                embedder_model,
+                torch_dtype=dtype,
+                trust_remote_code=True,
+                device_map="auto" if self.device.type == "cuda" else None,
+            )
+            if str(self.device) == "cpu":
+                self.embedder = self.embedder.to(self.device)
             self.embedder.eval()
 
     def model_for(self, lobe: str):
