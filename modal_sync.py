@@ -87,8 +87,20 @@ def sync_turn(
         )
         result = await session.turn(message)
         l_prof = result.l_inject_profile()
+        lobe_texts = {k: (v.text or "")[:240] for k, v in result.results.items()}
+        lobe_errors = {
+            k: v for k, v in lobe_texts.items()
+            if (v or "").startswith("[error:")
+        }
+        inject_by_lobe = {
+            k: int(getattr(v.timing, "inject_count", 0) or 0)
+            for k, v in result.results.items()
+        }
+        publish_layers_ok = bool(
+            (result.crossing_telemetry or {}).get("publish_count", 0)
+        )
         return {
-            "ok": True,
+            "ok": not lobe_errors,
             "model": model_name,
             "roster": list(session.ROSTER),
             "has_v": "V" in session.ROSTER,
@@ -99,8 +111,14 @@ def sync_turn(
             "total_s": result.total_s,
             "l_inject_count": l_prof.get("inject_count", 0),
             "l_inject_ops": l_prof.get("inject_ops", 0),
+            "inject_by_lobe": inject_by_lobe,
+            "total_injects": sum(inject_by_lobe.values()),
+            "publish_count": (result.crossing_telemetry or {}).get("publish_count", 0),
+            "ready_sources": (result.crossing_telemetry or {}).get("ready_sources", []),
             "crossing": result.crossing_telemetry,
-            "lobe_texts": {k: (v.text or "")[:200] for k, v in result.results.items()},
+            "lobe_texts": lobe_texts,
+            "lobe_errors": lobe_errors,
+            "publish_layers_ok": publish_layers_ok,
         }
 
     out = asyncio.run(_run())
@@ -127,8 +145,14 @@ def main(
             print(f"  crossing_keys={list(v.keys()) if isinstance(v, dict) else type(v)}")
             continue
         print(f"  {k}={v}")
+    if not result.get("ok"):
+        raise SystemExit(f"lobe errors: {result.get('lobe_errors')}")
     if not result.get("has_v"):
         raise SystemExit("V lobe missing from roster")
-    if result.get("activation_injection") and result.get("l_inject_count", 0) < 0:
-        raise SystemExit("activation injection profile missing")
+    if "V" not in (result.get("ready_sources") or []) and result.get("publish_count", 0) < 1:
+        raise SystemExit("Crossing published nothing — activation share dead")
+    if int(result.get("total_injects") or 0) < 1:
+        raise SystemExit(
+            "no activation injects across lobes — Crossing share not running"
+        )
     print("SYNC_MODAL_OK")

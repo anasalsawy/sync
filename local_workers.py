@@ -134,14 +134,31 @@ class SimModel:
 # HF shared-weights bundle
 # ---------------------------------------------------------------------------
 
+def _hf_layer_modules(model) -> list:
+    """Resolve transformer block list across Llama/Qwen3.x layouts."""
+    if hasattr(model, "model") and hasattr(model.model, "layers"):
+        return list(model.model.layers)
+    if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+        return list(model.transformer.h)
+    if hasattr(model, "layers"):
+        return list(model.layers)
+    return []
+
+
 class HFBundle:
-    """One weight copy; each worker keeps independent decode state externally."""
+    """One weight copy; each worker keeps independent decode state externally.
+
+    Parallel Sync lobes share this model under ``forward_lock``. We avoid
+    ``device_map=auto`` lazy wrappers — single-GPU ``.to(device)`` so mid-pass
+    hooks + Crossing inject stay valid.
+    """
 
     def __init__(self, model_name: str, embedder_model: str | None = None) -> None:
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self.model_name = model_name
         self.device = _device()
+        self.forward_lock = threading.RLock()
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True,
         )
@@ -152,20 +169,13 @@ class HFBundle:
             dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         else:
             dtype = torch.float32
+        # No device_map=auto: concurrent lobe forwards + hooks need a real module.
         self.shared = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=dtype,
             trust_remote_code=True,
-            device_map="auto" if self.device.type == "cuda" else None,
-        )
-        if self.device.type != "cuda":
-            self.shared = self.shared.to(self.device)
-        else:
-            # device_map=auto may shard; pin worker inputs to first param device
-            try:
-                self.device = next(self.shared.parameters()).device
-            except StopIteration:
-                pass
+            low_cpu_mem_usage=True,
+        ).to(self.device)
         self.shared.eval()
         self.embedder = None
         if embedder_model and embedder_model != model_name:
@@ -173,10 +183,8 @@ class HFBundle:
                 embedder_model,
                 torch_dtype=dtype,
                 trust_remote_code=True,
-                device_map="auto" if self.device.type == "cuda" else None,
-            )
-            if str(self.device) == "cpu":
-                self.embedder = self.embedder.to(self.device)
+                low_cpu_mem_usage=True,
+            ).to(self.device)
             self.embedder.eval()
 
     def model_for(self, lobe: str):
@@ -329,11 +337,19 @@ class LocalLobeWorker:
                 self.timing.inject_count += 1
         return injected
 
-    def _publish_snaps(self, step: int, snaps: dict[int, torch.Tensor], kind: str) -> None:
+    def _publish_snaps(
+        self,
+        step: int,
+        snaps: dict[int, torch.Tensor],
+        kind: str,
+        *,
+        immediate: bool = False,
+    ) -> None:
         for layer, tensor in snaps.items():
             if kind != "embed" and layer not in PUBLISH_LAYERS:
                 continue
-            ready = _make_ready(tensor)
+            # HF publishes after the locked forward finishes — already GPU-complete.
+            ready = ReadyHandle(ready=True) if immediate else _make_ready(tensor)
             sig = self.crossing.publish(
                 self.lobe,
                 pass_id=self._pass_id,
@@ -343,7 +359,7 @@ class LocalLobeWorker:
                 payload=tensor.detach(),
                 readiness=ready,
             )
-            if sig is not None and ready.event is None:
+            if sig is not None and (immediate or ready.event is None):
                 self.crossing.mark_ready(self.lobe, seq=sig.seq)
 
     def run_sync(self, prompt: str, *, pass_id: int = 0) -> WorkerResult:
@@ -459,7 +475,52 @@ class LocalLobeWorker:
             timing=self.timing, embedding=self.embedding, decisions=list(self.decisions),
         )
 
+    def _hf_inject_from_peers(self, h: torch.Tensor, *, step: int, layer: int) -> None:
+        """Write ready peer activations into residual ``h`` (same-process HF)."""
+        if not self.crossing.enabled:
+            return
+        for peer in self.peers:
+            if peer == self.lobe:
+                continue
+            sig = self.crossing.latest_ready(peer)
+            if sig is None:
+                self.crossing.record_consume(
+                    self.lobe, peer, step=step, layer=layer,
+                    signal=None, reason="absent",
+                )
+                continue
+            self.crossing.record_consume(
+                self.lobe, peer, step=step, layer=layer, signal=sig,
+            )
+            vec = sig.payload
+            if isinstance(vec, dict):
+                vec = vec.get("vector")
+            kind = getattr(sig, "kind", "") or "hidden"
+            if not isinstance(vec, torch.Tensor):
+                continue
+            if not self.crossing.allows_activation_inject(kind):
+                continue
+            # Same-process HF: move onto activation device if needed.
+            if vec.device != h.device:
+                try:
+                    vec = vec.to(h.device, non_blocking=True)
+                except Exception:
+                    self.timing.skipped_transfer += 1
+                    continue
+            t_inj = time.perf_counter()
+            v = vec.detach().flatten().float()
+            width = h.shape[-1]
+            if v.numel() < width:
+                v = F.pad(v, (0, width - v.numel()))
+            h[:, -1, :] = h[:, -1, :] + (
+                INJECT_SCALE * 0.05 * v[:width].to(dtype=h.dtype)
+            )
+            self.timing.inject_s.append(time.perf_counter() - t_inj)
+            self.timing.inject_ops += 1
+            self.timing.inject_count += 1
+
     def _run_hf(self, prompt: str) -> WorkerResult:
+        """HF decode with per-step lock: hooks + forward + publish for Crossing."""
         assert self.hf is not None
         model = self.hf.model_for(self.lobe)
         tok = self.hf.tokenizer
@@ -467,165 +528,106 @@ class LocalLobeWorker:
         inputs = tok(prompt, return_tensors="pt")
         inputs = {k: v.to(device) for k, v in inputs.items()}
         self.timing.compute_started_at = time.perf_counter()
+        layer_modules = _hf_layer_modules(model)
+        hook_layers = sorted(
+            i for i in set(PUBLISH_LAYERS + INJECT_LAYERS) if i < len(layer_modules)
+        )
 
         if self.lobe == "Embedder":
-            layer_modules = list(model.model.layers) if hasattr(model, "model") else []
             captured: dict[int, torch.Tensor] = {}
 
             def make_hook(idx: int):
                 def _hook(_module, _inp, output):
-                    # Mid-pass receive: inject only if already ready on our device.
-                    if self.crossing.enabled and idx in INJECT_LAYERS:
-                        h = output[0] if isinstance(output, tuple) else output
-                        for peer in self.peers:
-                            if peer == self.lobe:
-                                continue
-                            sig = self.crossing.latest_ready(peer)
-                            if sig is None:
-                                self.crossing.record_consume(
-                                    self.lobe, peer, step=0, layer=idx,
-                                    signal=None, reason="absent",
-                                )
-                                continue
-                            self.crossing.record_consume(
-                                self.lobe, peer, step=0, layer=idx, signal=sig,
-                            )
-                            vec = sig.payload
-                            if isinstance(vec, dict):
-                                vec = vec.get("vector")
-                            kind = getattr(sig, "kind", "") or "hidden"
-                            if not isinstance(vec, torch.Tensor):
-                                continue
-                            if not self.crossing.allows_activation_inject(kind):
-                                continue
-                            # Never .to() a foreign device on L's path — skip
-                            if vec.device != h.device:
-                                self.timing.skipped_transfer += 1
-                                continue
-                            t_inj = time.perf_counter()
-                            v = vec.detach().flatten()
-                            if v.numel() < h.shape[-1]:
-                                v = F.pad(v, (0, h.shape[-1] - v.numel()))
-                            h[:, -1, :] = h[:, -1, :] + INJECT_SCALE * 0.05 * v[: h.shape[-1]]
-                            self.timing.inject_s.append(time.perf_counter() - t_inj)
-                            self.timing.inject_ops += 1
-                            self.timing.inject_count += 1
-                    out_h = output[0] if isinstance(output, tuple) else output
-                    captured[idx] = out_h[0, -1, :].detach()
+                    h = output[0] if isinstance(output, tuple) else output
+                    if idx in INJECT_LAYERS:
+                        self._hf_inject_from_peers(h, step=0, layer=idx)
+                    captured[idx] = h[0, -1, :].detach()
                 return _hook
 
-            handles = []
-            for idx in set(PUBLISH_LAYERS + INJECT_LAYERS):
-                if idx < len(layer_modules):
-                    handles.append(layer_modules[idx].register_forward_hook(make_hook(idx)))
-            try:
-                with torch.no_grad():
-                    out = model(**inputs, output_hidden_states=True)
-                self.timing.forward_count += 1
-            finally:
-                for h in handles:
-                    h.remove()
+            with self.hf.forward_lock:
+                handles = [
+                    layer_modules[idx].register_forward_hook(make_hook(idx))
+                    for idx in hook_layers
+                ]
+                try:
+                    with torch.no_grad():
+                        out = model(**inputs, output_hidden_states=True)
+                    self.timing.forward_count += 1
+                finally:
+                    for h in handles:
+                        h.remove()
             hidden = out.hidden_states[-1][0].mean(dim=0).detach()
-            self.embedding = hidden.cpu()
+            # Keep on GPU so peer injects don't skip device mismatch.
+            self.embedding = hidden
             ready = _make_ready(hidden)
             self.crossing.publish(
                 self.lobe, pass_id=self._pass_id, step=0, layer=0, kind="index",
-                payload={"vector": self.embedding, "text": prompt[:200]},
+                payload={"vector": hidden, "text": prompt[:200]},
                 readiness=ready,
             )
             if ready.event is None:
                 self.crossing.mark_ready(self.lobe)
-            self._publish_snaps(0, {k: v.cpu() for k, v in captured.items()}, kind="embed")
+            self._publish_snaps(0, dict(captured), kind="embed", immediate=True)
             self.text = "[embedded]"
             self.timing.first_token_at = time.perf_counter()
             self.timing.finished_at = time.perf_counter()
             self.timing.decode_steps = 1
             return WorkerResult(
                 lobe=self.lobe, text=self.text, token_ids=[],
-                timing=self.timing, embedding=self.embedding,
+                timing=self.timing, embedding=self.embedding.detach().cpu(),
             )
 
         generated = inputs["input_ids"]
         pieces: list[str] = []
-        layer_modules = list(model.model.layers) if hasattr(model, "model") else []
-        captured: dict[int, torch.Tensor] = {}
+        for step in range(self.max_new_tokens):
+            if self._stop.is_set():
+                break
+            t0 = time.perf_counter()
+            if self.mid_pass_hook is not None:
+                self.mid_pass_hook(self.lobe, step, self)
+            captured: dict[int, torch.Tensor] = {}
 
-        def make_hook(idx: int):
-            def _hook(_module, _inp, output):
-                h = output[0] if isinstance(output, tuple) else output
-                if self.crossing.enabled and idx in INJECT_LAYERS:
-                    for peer in self.peers:
-                        if peer == self.lobe:
-                            continue
-                        sig = self.crossing.latest_ready(peer)
-                        if sig is None:
-                            continue
-                        vec = sig.payload
-                        if isinstance(vec, dict):
-                            vec = vec.get("vector")
-                        kind = getattr(sig, "kind", "") or "hidden"
-                        if not isinstance(vec, torch.Tensor):
-                            continue
-                        if not self.crossing.allows_activation_inject(kind):
-                            continue
-                        if vec.device != h.device:
-                            self.timing.skipped_transfer += 1
-                            continue
-                        t_inj = time.perf_counter()
-                        v = vec.detach().flatten()
-                        if v.numel() < h.shape[-1]:
-                            v = F.pad(v, (0, h.shape[-1] - v.numel()))
-                        h[:, -1, :] = h[:, -1, :] + INJECT_SCALE * 0.05 * v[: h.shape[-1]]
-                        self.timing.inject_s.append(time.perf_counter() - t_inj)
-                        self.timing.inject_ops += 1
-                        self.timing.inject_count += 1
-                captured[idx] = h[0, -1, :].detach()
-            return _hook
+            def make_hook(idx: int, step_i: int = step):
+                def _hook(_module, _inp, output):
+                    h = output[0] if isinstance(output, tuple) else output
+                    if idx in INJECT_LAYERS:
+                        self._hf_inject_from_peers(h, step=step_i, layer=idx)
+                    captured[idx] = h[0, -1, :].detach()
+                return _hook
 
-        handles = [layer_modules[i].register_forward_hook(make_hook(i))
-                   for i in set(PUBLISH_LAYERS + INJECT_LAYERS) if i < len(layer_modules)]
-        try:
-            for step in range(self.max_new_tokens):
-                if self._stop.is_set():
-                    break
-                t0 = time.perf_counter()
-                if self.mid_pass_hook is not None:
-                    self.mid_pass_hook(self.lobe, step, self)
-                for layer in INJECT_LAYERS:
-                    # Metadata consume — never blocks; miss if not ready
-                    for peer in self.peers:
-                        if peer == self.lobe:
-                            continue
-                        sig = self.crossing.latest_ready(peer)
-                        self.crossing.record_consume(
-                            self.lobe, peer, step=step, layer=layer, signal=sig,
-                            reason="" if sig else "absent",
-                        )
-                captured.clear()
-                with torch.no_grad():
-                    out = model(input_ids=generated)
-                    next_id = int(torch.argmax(out.logits[:, -1, :], dim=-1).item())
-                self.timing.forward_count += 1
-                self.timing.decode_steps += 1
-                # Publish CPU copies off the hot path after the forward
-                snaps = {k: v.detach() for k, v in captured.items()}
-                self._publish_snaps(step, snaps, kind="hidden")
-                generated = torch.cat(
-                    [generated, torch.tensor([[next_id]], device=device)], dim=1,
-                )
-                piece = tok.decode([next_id], skip_special_tokens=True)
-                pieces.append(piece)
-                self.token_ids.append(next_id)
-                if self.timing.first_token_at is None:
-                    self.timing.first_token_at = time.perf_counter()
-                if self.speak and self.on_token and piece:
-                    self.on_token(self.lobe, piece)
-                self.timing.step_durations.append(time.perf_counter() - t0)
-                if next_id == tok.eos_token_id:
-                    break
-        finally:
-            for h in handles:
-                h.remove()
+            # Serialize register → forward → remove so peers interleave by step.
+            with self.hf.forward_lock:
+                handles = [
+                    layer_modules[idx].register_forward_hook(make_hook(idx))
+                    for idx in hook_layers
+                ]
+                try:
+                    with torch.no_grad():
+                        out = model(input_ids=generated)
+                        next_id = int(torch.argmax(out.logits[:, -1, :], dim=-1).item())
+                    self.timing.forward_count += 1
+                    self.timing.decode_steps += 1
+                    snaps = {k: v.detach() for k, v in captured.items()}
+                finally:
+                    for h in handles:
+                        h.remove()
+
+            self._publish_snaps(step, snaps, kind="hidden", immediate=True)
+            generated = torch.cat(
+                [generated, torch.tensor([[next_id]], device=device)], dim=1,
+            )
+            piece = tok.decode([next_id], skip_special_tokens=True)
+            pieces.append(piece)
+            self.token_ids.append(next_id)
+            if self.timing.first_token_at is None:
+                self.timing.first_token_at = time.perf_counter()
+            if self.speak and self.on_token and piece:
+                self.on_token(self.lobe, piece)
+            self.timing.step_durations.append(time.perf_counter() - t0)
+            if next_id == tok.eos_token_id:
+                break
+            # Yield so other lobes can take the lock between tokens.
+            time.sleep(0)
 
         self.text = "".join(pieces).strip()
         self.timing.finished_at = time.perf_counter()
