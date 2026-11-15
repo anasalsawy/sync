@@ -177,7 +177,7 @@ class LocalRuntimeEntryTests(unittest.IsolatedAsyncioTestCase):
         rt = LocalSyncRuntime(backend="sim", max_new_tokens=4)
         result = await rt.turn("hi")
         self.assertEqual(result.config, "five_on")
-        self.assertEqual(list(rt.ROSTER), ["L", "R", "B", "C", "Embedder"])
+        self.assertEqual(list(rt.ROSTER), ["L", "R", "B", "V", "C", "Embedder"])
         await rt.close()
 
 

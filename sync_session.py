@@ -1,8 +1,10 @@
-"""Sync session — five concurrent local workers + live Crossing.
+"""Sync session — concurrent local workers + live Crossing.
 
-One user request starts L, R, B, C, and Embedder together without waiting for
-peer prefill. Only L streams. Crossing carries activations while inference
-runs; never blocks. Session state stays alive for additional L-directed passes.
+One user request starts L, R, B, V, C, and Embedder together without waiting
+for peer prefill. V owns live screen/browser/desktop state and shares it into
+worker lanes so R can act without a screenshot round-trip. Only L streams.
+Crossing carries activations while inference runs; never blocks. Session state
+stays alive for additional L-directed passes.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from crossing import Crossing, ReadyHandle
+from live_screen import LIVE_SCREEN, LiveScreenBus
 from local_workers import (
     DEFAULT_VOCAB,
     HFBundle,
@@ -107,7 +110,7 @@ def _pct(xs: list[float], p: float) -> float:
 class SyncSession:
     """Stateful multi-worker session for local activation crossing."""
 
-    ROSTER = MAIN_WORKERS  # L, R, B, C, Embedder
+    ROSTER = MAIN_WORKERS  # L, R, B, V, C, Embedder
 
     def __init__(
         self,
@@ -121,6 +124,7 @@ class SyncSession:
         isolate_peers: bool | None = None,
         vocab: dict[str, int] | None = None,
         embedder_model: str | None = None,
+        live_screen: LiveScreenBus | None = None,
     ) -> None:
         self.model_name = model_name or os.environ.get(
             "NDIF_MODEL", "Qwen/Qwen3-8B",
@@ -141,14 +145,27 @@ class SyncSession:
         self._pass = 0
         self._alive_workers: dict[str, LocalLobeWorker] = {}
         self.last_crossing: Crossing | None = None
+        self.live_screen = live_screen if live_screen is not None else LIVE_SCREEN
         self.role_streams = {
             "R": "environment: idle",
             "B": "memory: none",
+            "V": "live screen: none yet",
             "C": "constraints: none",
             "Embedder": "",
         }
         if self.backend == "hf":
             self._hf = HFBundle(self.model_name, embedder_model=self.embedder_model)
+
+    def sync_v_role_stream(self) -> None:
+        """Refresh V's role stream from the live screen bus for worker lanes."""
+        self.role_streams["V"] = self.live_screen.worker_context()
+        # R workers also see V state so they skip observe/screenshot trips.
+        if self.live_screen.has_live():
+            base_r = self.role_streams.get("R", "environment: idle")
+            if "[V live screen" not in base_r:
+                self.role_streams["R"] = (
+                    f"{base_r}\n{self.live_screen.worker_context()}"
+                )
 
     def _conversation(self, message: str) -> str:
         lines = self.history[-6:] + [f"user: {message}"]
@@ -202,6 +219,7 @@ class SyncSession:
         do_isolate = self.isolate_peers if isolate_peers is None else isolate_peers
         if role_streams:
             self.role_streams.update(role_streams)
+        self.sync_v_role_stream()
 
         # Peers always get a Crossing when not solo. "five_off" disables only
         # activation injection — coordination kinds still publish.

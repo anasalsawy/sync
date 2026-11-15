@@ -1,9 +1,10 @@
 """Local concurrent lobe workers with activation Crossing hooks.
 
-Each autoregressive worker (L/R/B/C) owns independent decode state (KV /
-position / sampling). Weights may be shared. The Embedder runs encode passes
-with mid-pass receive hooks. Capture → transfer → inject never blocks peers
-and never adds forward passes or restarts.
+Each autoregressive worker (L/R/B/V/C) owns independent decode state (KV /
+position / sampling). Weights may be shared. V owns live screen/browser state
+shared into worker lanes. The Embedder runs encode passes with mid-pass receive
+hooks. Capture → transfer → inject never blocks peers and never adds forward
+passes or restarts.
 """
 from __future__ import annotations
 
@@ -19,8 +20,9 @@ import torch.nn.functional as F
 
 from crossing import Crossing, ReadyHandle
 
-MAIN_WORKERS = ("L", "R", "B", "C", "Embedder")
-AR_WORKERS = ("L", "R", "B", "C")
+# V owns live browser/desktop state and shares it into R worker lanes.
+MAIN_WORKERS = ("L", "R", "B", "V", "C", "Embedder")
+AR_WORKERS = ("L", "R", "B", "V", "C")
 
 PUBLISH_LAYERS = (2, 4, 6)
 INJECT_LAYERS = (3, 5, 7)
@@ -621,6 +623,11 @@ def role_prompt(lobe: str, conversation: str, role_stream: str) -> str:
         return f"{conversation}\n\nexecution stream:\n{role_stream}\nplan:"
     if lobe == "B":
         return f"{conversation}\n\nmemory stream:\n{role_stream}\nrecall:"
+    if lobe == "V":
+        return (
+            f"{conversation}\n\nlive screen stream (keep freshest browser/"
+            f"desktop state for worker lanes):\n{role_stream}\nvision:"
+        )
     if lobe == "C":
         return f"{conversation}\n\nconstraints stream:\n{role_stream}\nverify:"
     if lobe == "Embedder":

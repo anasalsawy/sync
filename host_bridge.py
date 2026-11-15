@@ -136,17 +136,79 @@ def register_mcp_tools(
 # Playwright auto-discovery
 # ---------------------------------------------------------------------------
 
+async def push_playwright_to_v(page, *, source: str = "browser") -> None:
+    """Refresh V's live screen bus from the current Playwright page (no PNG)."""
+    from live_screen import LIVE_SCREEN
+    try:
+        title = await page.title()
+        url = page.url
+        links = await page.eval_on_selector_all(
+            "a[href]",
+            "els => els.slice(0,12).map(e => ({text:(e.innerText||'').trim().slice(0,60), href:e.href}))",
+        )
+        controls = await page.eval_on_selector_all(
+            "input,textarea,button,select",
+            "els => els.slice(0,12).map(e => ({tag:e.tagName.toLowerCase(), "
+            "id:e.id||'', name:e.name||'', text:(e.innerText||e.value||'').trim().slice(0,40)}))",
+        )
+        LIVE_SCREEN.push(
+            source=source,
+            url=url or "",
+            title=title or "",
+            summary=f"{title} @ {url}",
+            links=list(links or []),
+            controls=list(controls or []),
+        )
+    except Exception:
+        # Best-effort: still mark a minimal frame so workers can skip screenshots
+        try:
+            LIVE_SCREEN.push(
+                source=source,
+                url=getattr(page, "url", "") or "",
+                title="",
+                summary="page state refresh failed partially",
+            )
+        except Exception:
+            pass
+
+
 def register_playwright_page(page):
     """
     Auto-register handlers from a live Playwright page object.
     No imports at module level — Playwright is optional.
+
+    After mutating actions, V's LiveScreenBus is refreshed so worker lanes
+    already hold live state — observe/screenshot is skipped.
     """
+    from live_screen import LIVE_SCREEN
+
+    async def _after_mutate() -> None:
+        await push_playwright_to_v(page)
+
     async def _click(p: ActionProposal) -> ActionResult:
         try:
-            await page.click(p.target, timeout=5000)
+            target = (p.target or "").strip()
+            # Models often emit href URLs for click — not valid CSS; resolve to link.
+            if re.match(r"^https?://", target, re.I):
+                link = page.locator(f'a[href="{target}"]').first
+                if await link.count() == 0:
+                    # HN and others may use relative hrefs; try suffix match
+                    link = page.locator(f'a[href*="{target.split("://", 1)[-1]}"]').first
+                if await link.count() > 0:
+                    await link.click(timeout=5000)
+                else:
+                    # Last resort: navigate to the URL (still advances the task)
+                    await page.goto(target, timeout=15000)
+                await _after_mutate()
+                return ActionResult(
+                    lobe=p.lobe, action_type="click", target=target, success=True,
+                    output=f"clicked/opened {target} → {page.url}",
+                )
+            await page.click(target, timeout=5000)
+            await _after_mutate()
             return ActionResult(lobe=p.lobe, action_type="click",
-                                target=p.target, success=True,
-                                output=f"clicked {p.target}")
+                                target=target, success=True,
+                                output=f"clicked {target}")
         except Exception as e:
             return ActionResult(lobe=p.lobe, action_type="click",
                                 target=p.target, success=False, error=str(e))
@@ -154,6 +216,7 @@ def register_playwright_page(page):
     async def _fill(p: ActionProposal) -> ActionResult:
         try:
             await page.fill(p.target, str(p.payload or ""), timeout=5000)
+            await _after_mutate()
             return ActionResult(lobe=p.lobe, action_type="fill",
                                 target=p.target, success=True,
                                 output=f"filled {p.target}")
@@ -164,6 +227,7 @@ def register_playwright_page(page):
     async def _navigate(p: ActionProposal) -> ActionResult:
         try:
             await page.goto(p.target, timeout=15000)
+            await _after_mutate()
             return ActionResult(lobe=p.lobe, action_type="navigate",
                                 target=p.target, success=True,
                                 output=page.url)
@@ -172,11 +236,19 @@ def register_playwright_page(page):
                                 target=p.target, success=False, error=str(e))
 
     async def _observe(p: ActionProposal) -> ActionResult:
+        # V already shared live state with worker lanes — no screenshot trip.
+        if LIVE_SCREEN.should_skip_observe():
+            LIVE_SCREEN.note_observe_skipped()
+            return ActionResult(
+                lobe=p.lobe, action_type="observe", target=p.target,
+                success=True, output=LIVE_SCREEN.worker_context(),
+            )
         try:
-            screenshot = await page.screenshot(type="png")
-            return ActionResult(lobe=p.lobe, action_type="observe",
-                                target=p.target, success=True,
-                                output=f"screenshot:{len(screenshot)}bytes")
+            await push_playwright_to_v(page)
+            return ActionResult(
+                lobe=p.lobe, action_type="observe", target=p.target,
+                success=True, output=LIVE_SCREEN.worker_context(),
+            )
         except Exception as e:
             return ActionResult(lobe=p.lobe, action_type="observe",
                                 target=p.target, success=False, error=str(e))
@@ -186,6 +258,7 @@ def register_playwright_page(page):
             direction = str(p.payload or "down")
             delta = 300 if direction == "down" else -300
             await page.evaluate(f"window.scrollBy(0, {delta})")
+            await _after_mutate()
             return ActionResult(lobe=p.lobe, action_type="scroll",
                                 target=p.target, success=True,
                                 output=f"scrolled {direction}")

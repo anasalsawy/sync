@@ -1,9 +1,11 @@
-"""Production companion session on top of local five-worker Crossing.
+"""Production companion session on top of local multi-worker Crossing.
 
-L owns speech (text+audio) with barge-in. POST /v1/task submits to L; once L
-authorizes, R starts a silent lane. C tags verdicts with task/lane/action
-version. Blueprint + Sketchpad restore with dispatched/observed durability.
-``activation_injection`` gates residual sharing; coordination stays available.
+L owns speech (text+audio) with barge-in. V owns live browser/desktop state and
+shares it into R worker lanes (no screenshot round-trip). POST /v1/task submits
+to L; once L authorizes, R starts a silent lane. C tags verdicts with
+task/lane/action version. Blueprint + Sketchpad restore with
+dispatched/observed durability. ``activation_injection`` gates residual
+sharing; coordination stays available.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ import torch
 from boards import BoardStore, ConversationBoard, ExecutionBlueprint
 from crossing import Crossing, ReadyHandle
 from execution_lanes import ExecutionLaneManager, HostExecutor, MockHostExecutor
+from live_screen import LIVE_SCREEN
 from memory_store import EpisodicMemory, embedder_prompt_from_recall
 from sync_session import SessionTurnResult, SyncSession
 from voice import StubVoiceOut, VoiceOut

@@ -200,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
             print("[health] ok", flush=True)
             roster = {
                 "ndif_batch": ["L", "R", "B", "V", "C"],
-                "local_crossing": ["L", "R", "B", "C", "Embedder"],
+                "local_crossing": ["L", "R", "B", "V", "C", "Embedder"],
                 "sync_runtime": ["L", "R", "B", "V", "C"],
             }.get(SYNC_RUNTIME, ["L", "R", "B", "V", "C"])
             self._json(200, {

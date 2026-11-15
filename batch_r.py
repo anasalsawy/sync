@@ -17,6 +17,7 @@ import torch
 import torch.nn.functional as F
 
 from crossing import Crossing, ReadyHandle
+from live_screen import LIVE_SCREEN, LiveScreenBus
 from local_workers import DEFAULT_VOCAB, HIDDEN, INJECT_SCALE, PUBLISH_LAYERS
 from multi_r_config import DEFAULT_MULTI_R_WORKERS, MultiRLaunchError
 from task_record import SharedTaskRecord
@@ -163,18 +164,32 @@ def _tokenize(text: str, vocab: dict[str, int]) -> list[int]:
     return toks or [vocab.get("plan", 4)]
 
 
-def _task_prompt(record: SharedTaskRecord, worker_id: str) -> str:
+def _task_prompt(
+    record: SharedTaskRecord,
+    worker_id: str,
+    live_screen: LiveScreenBus | None = None,
+) -> str:
     snap = record.snapshot_for_worker()
     obs = " | ".join(snap["observations"][-5:]) or "none"
     prog = " | ".join(snap["progress"][-5:]) or "none"
     avail = ", ".join(
         f"{a['effect']}@{a['resource']}" for a in snap["available"][:8]
     ) or "discover"
+    bus = live_screen if live_screen is not None else LIVE_SCREEN
+    v_ctx = bus.worker_context() if bus.has_live() else "[V live screen: none yet]"
+    # When V already shared live state, workers act next — no observe/screenshot.
+    skip = (
+        "skip_observe: V live screen already shared — do not request screenshot"
+        if bus.should_skip_observe()
+        else "observe_ok: no live V frame yet"
+    )
     return (
         f"R worker {worker_id} silent execution.\n"
         f"goal: {snap['goal']}\n"
         f"constraints: {snap['constraints']}\n"
         f"source: {snap['source_material'][:200]}\n"
+        f"{v_ctx}\n"
+        f"{skip}\n"
         f"observations: {obs}\n"
         f"progress: {prog}\n"
         f"available_actions: {avail}\n"
@@ -194,6 +209,7 @@ class BatchedRTeam:
         vocab: dict[str, int] | None = None,
         crossing: Crossing | None = None,
         worker_id_prefix: str = "",
+        live_screen: LiveScreenBus | None = None,
     ) -> None:
         if n_workers < 1:
             raise MultiRLaunchError(n_workers, 0, "n_workers must be >= 1")
@@ -203,6 +219,7 @@ class BatchedRTeam:
         self.vocab = vocab if vocab is not None else dict(DEFAULT_VOCAB)
         self.crossing = crossing
         self.worker_id_prefix = worker_id_prefix
+        self.live_screen = live_screen if live_screen is not None else LIVE_SCREEN
         try:
             self.sim = BatchedRSim(
                 n_workers, vocab=self.vocab, cross_attn=cross_attn,
@@ -246,7 +263,8 @@ class BatchedRTeam:
         self.ensure_launched()
         timing = BatchRTiming(compute_started_at=time.perf_counter())
         prompts = [
-            _task_prompt(record, w.worker_id) for w in self.workers
+            _task_prompt(record, w.worker_id, self.live_screen)
+            for w in self.workers
         ]
         prompt_ids = [_tokenize(p, self.vocab) for p in prompts]
         self.sim.reset(prompt_ids)

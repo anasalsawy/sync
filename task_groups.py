@@ -21,6 +21,7 @@ from hands_paths import (
     detect_hands_path,
 )
 from host_subagents import bind_host_executor
+from live_screen import LIVE_SCREEN, LiveScreenBus
 from multi_r_config import DEFAULT_MULTI_R_WORKERS, MultiRLaunchError, multi_r_worker_count
 from r_coordinator import CoordinatorResult, RCoordinator
 from shared_resources import SharedResourceBus
@@ -66,6 +67,7 @@ class MainRCoordinator:
     root: Path = field(default_factory=lambda: Path("hands_live_root"))
     crossing: Any = None
     activation_injection: bool = True
+    live_screen: LiveScreenBus = field(default_factory=lambda: LIVE_SCREEN)
     on_event: EventCb = None
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -189,6 +191,7 @@ class MainRCoordinator:
                     crossing=self.crossing,
                     executor=bound_executor,
                     worker_id_prefix=pref,
+                    live_screen=self.live_screen,
                 )
                 group.inference_started_at = time.perf_counter()
                 result = await coord.run_task(

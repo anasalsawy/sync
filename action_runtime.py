@@ -181,6 +181,19 @@ async def _default_handler(proposal: ActionProposal) -> ActionResult:
 
 async def execute_action(proposal: ActionProposal) -> ActionResult:
     t0 = time.time()
+    # V already shares live screen into worker lanes — skip screenshot round-trip.
+    if proposal.action_type in ("observe", "screenshot", "snapshot", "capture"):
+        from live_screen import LIVE_SCREEN
+        if LIVE_SCREEN.should_skip_observe():
+            LIVE_SCREEN.note_observe_skipped()
+            return ActionResult(
+                lobe=proposal.lobe,
+                action_type=proposal.action_type,
+                target=proposal.target,
+                success=True,
+                output=LIVE_SCREEN.worker_context(),
+                elapsed_s=time.time() - t0,
+            )
     handler = _HANDLERS.get(proposal.action_type, _default_handler)
     try:
         result = await handler(proposal)
@@ -293,7 +306,14 @@ class ActionRuntime:
 
 @register_handler("observe")
 async def _handle_observe(p: ActionProposal) -> ActionResult:
-    """Placeholder — replace with real screenshot / DOM read."""
+    """Return V live screen when shared; otherwise placeholder DOM read."""
+    from live_screen import LIVE_SCREEN
+    if LIVE_SCREEN.should_skip_observe():
+        LIVE_SCREEN.note_observe_skipped()
+        return ActionResult(
+            lobe=p.lobe, action_type=p.action_type, target=p.target,
+            success=True, output=LIVE_SCREEN.worker_context(),
+        )
     return ActionResult(lobe=p.lobe, action_type=p.action_type,
                         target=p.target, success=True,
                         output=f"[observed: {p.target}]")

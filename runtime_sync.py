@@ -245,14 +245,14 @@ class SyncRuntime:
 
 
 # ---------------------------------------------------------------------------
-# Preferred entry: local five-worker activation Crossing
+# Preferred entry: local multi-worker activation Crossing (incl. V)
 # ---------------------------------------------------------------------------
 
 class LocalSyncRuntime:
     """Session entry point for SYNC_RUNTIME=local_crossing.
 
     Wraps ``SyncSession`` so callers can import a single runtime module.
-    Roster is fixed to L, R, B, C, Embedder.
+    Roster is fixed to L, R, B, V, C, Embedder. V owns live screen state.
     """
 
     def __init__(self, **kwargs) -> None:

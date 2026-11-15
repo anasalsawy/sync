@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from batch_r import BatchedRTeam, BatchRResult
 from crossing import Crossing
+from live_screen import LIVE_SCREEN, LiveScreenBus
 from multi_r_config import DEFAULT_MULTI_R_WORKERS, MultiRLaunchError
 from task_record import SharedTaskRecord, TaskAction
 
@@ -269,11 +270,13 @@ class RCoordinator:
         mode: str = "sequential",  # sequential | batch | parallel
         crossing: Crossing | None = None,
         worker_id_prefix: str = "",
+        live_screen: LiveScreenBus | None = None,
     ) -> None:
         self.n_workers = n_workers
         self.cross_attn = cross_attn
         self.mode = mode
         self.worker_id_prefix = worker_id_prefix
+        self.live_screen = live_screen if live_screen is not None else LIVE_SCREEN
         try:
             self.team = BatchedRTeam(
                 n_workers=n_workers,
@@ -281,6 +284,7 @@ class RCoordinator:
                 cross_attn=cross_attn,
                 crossing=crossing,
                 worker_id_prefix=worker_id_prefix,
+                live_screen=self.live_screen,
             )
             self.team.ensure_launched()
         except MultiRLaunchError:
@@ -453,6 +457,8 @@ class RCoordinator:
             "resource": action.resource,
             "args": dict(action.args),
             "observations": list(record.observations[-5:]),
+            "v_live": self.live_screen.worker_context(),
+            "skip_observe": self.live_screen.should_skip_observe(),
         }
         if action.effect == "edit":
             # Recheck against latest observed file content
@@ -468,6 +474,44 @@ class RCoordinator:
         if action.effect == "investigate":
             payload["findings"] = "null_check_needed"
         return payload
+
+    def _is_observe_effect(self, effect: str) -> bool:
+        return effect.lower() in ("observe", "screenshot", "snapshot", "capture")
+
+    def _skip_observe_with_v(
+        self,
+        record: SharedTaskRecord,
+        action: TaskAction,
+        log: list[dict[str, Any]],
+    ) -> bool:
+        """If V already shared live screen, skip screenshot trip and continue."""
+        if not self._is_observe_effect(action.effect):
+            return False
+        if not self.live_screen.should_skip_observe():
+            return False
+        self.live_screen.note_observe_skipped()
+        ctx = self.live_screen.worker_context()
+        record.add_observation(f"V_LIVE_SKIP_SCREENSHOT:{ctx[:240]}")
+        record.mark_verified(
+            action.action_id,
+            f"V_LIVE:{self.live_screen.seq}",
+            ok=True,
+        )
+        log.append({
+            "action_id": action.action_id,
+            "effect": action.effect,
+            "resource": action.resource,
+            "result": f"V_LIVE_SKIP seq={self.live_screen.seq}",
+            "skipped_screenshot": True,
+        })
+        emit = getattr(self, "_emit_tl", None)
+        if emit:
+            emit(
+                "observe_skipped_v_live",
+                action_id=action.action_id,
+                seq=self.live_screen.seq,
+            )
+        return True
 
     async def _prep_loop(self, record: SharedTaskRecord) -> None:
         """Background: keep claiming/preparing while dispatch runs."""
@@ -519,6 +563,8 @@ class RCoordinator:
                 record.duplicate_dispatches_blocked += 1
                 if emit:
                     emit("duplicate_dispatch_blocked", action_id=action.action_id)
+                continue
+            if self._skip_observe_with_v(record, action, log):
                 continue
             if emit:
                 emit(
@@ -622,6 +668,8 @@ class RCoordinator:
                 if not record.mark_dispatched(act.action_id):
                     record.duplicate_dispatches_blocked += 1
                     return
+                if self._skip_observe_with_v(record, act, log):
+                    return
                 if emit:
                     emit(
                         "dispatch_start",
@@ -690,7 +738,13 @@ class RCoordinator:
                     continue
                 if not record.mark_dispatched(a.action_id):
                     record.duplicate_dispatches_blocked += 1
-            live = [(a, p) for a, p in batch if a.status == "dispatched"]
+            live: list[tuple[TaskAction, dict[str, Any]]] = []
+            for a, p in batch:
+                if a.status != "dispatched":
+                    continue
+                if self._skip_observe_with_v(record, a, log):
+                    continue
+                live.append((a, p))
             if not live:
                 continue
             results = await self.executor.execute_batch(live)
