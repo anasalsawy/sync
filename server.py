@@ -15,6 +15,7 @@ GET  /health
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import queue
@@ -43,6 +44,8 @@ _companion = None
 _turn_lock = threading.Lock()
 _working_mem = None
 _episodic_mem = None
+_ui_tars_runtime = None
+_ui_tars_init = threading.Lock()
 
 
 def _memory():
@@ -226,6 +229,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         length = int(self.headers.get("Content-Length", 0))
+        if path == "/v1/ui-tars/chat/completions" and not 0 <= length <= 32 * 1024 * 1024:
+            self._json(413, {"error": "GUI request is too large"})
+            return
         raw = self.rfile.read(length) if length else b"{}"
         try:
             data = json.loads(raw or b"{}")
@@ -233,6 +239,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("body must be a JSON object")
         except Exception:
             self._json(400, {"error": "invalid json"})
+            return
+
+        if path == "/v1/ui-tars/chat/completions":
+            self._ui_tars(data)
             return
 
         if path == "/v1/barge_in" and SYNC_RUNTIME == "local_crossing":
@@ -336,6 +346,49 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             traceback.print_exc()
             self._json(500, {"error": str(e)})
+
+    def _ui_tars(self, data):
+        global _ui_tars_runtime
+        secret = os.environ.get("SYNC_UI_TARS_KEY", "")
+        if not secret:
+            self._json(503, {"error": "Sync GUI inference is disabled"})
+            return
+        authorization = self.headers.get("Authorization", "")
+        if not hmac.compare_digest(authorization.encode(), f"Bearer {secret}".encode()):
+            self._json(401, {"error": "invalid Sync GUI key"})
+            return
+        task_id = self.headers.get("X-Session-Id", "")
+        if not 1 <= len(task_id) <= 128 or data.get("stream"):
+            self._json(400, {"error": "GUI requests require a session ID and non-streaming mode"})
+            return
+        try:
+            from ui_tars_vision import UITarsVisionRuntime, action_context
+        except ImportError:
+            self._json(503, {"error": "install the Sync UI-TARS requirements"})
+            return
+        try:
+            max_tokens = max(1, min(int(data.get("max_tokens", 512)), 512))
+            messages, image = action_context(data.get("messages"))
+        except (TypeError, ValueError) as exc:
+            self._json(400, {"error": str(exc)})
+            return
+        try:
+            with _ui_tars_init:
+                if _ui_tars_runtime is None:
+                    _ui_tars_runtime = UITarsVisionRuntime(MODEL)
+            text = _ui_tars_runtime.predict(messages, image, max_tokens)
+        except Exception:
+            traceback.print_exc()
+            self._json(503, {"error": "Sync GUI inference failed; see server logs"})
+            return
+        self._json(200, {
+            "id": f"chatcmpl-ui-tars-{time.time_ns()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": MODEL,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
+                         "finish_reason": "stop"}],
+        })
 
     def _stream_companion(self, message: str, max_new: int) -> None:
         self.send_response(200)

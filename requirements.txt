@@ -1,3 +1,5 @@
 nnsight
 pytest
 pytest-anyio
+
+Pillow
