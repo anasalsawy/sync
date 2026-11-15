@@ -1,0 +1,95 @@
+{
+  "summary": {
+    "n": 2,
+    "solo_pass": 1,
+    "connected_pass": 2,
+    "peer_needed": 1,
+    "connected_helps": 1,
+    "by_aspect": {
+      "memory_grounding": {
+        "n": 1,
+        "solo": 0,
+        "connected": 1,
+        "helps": 1
+      },
+      "conversational_quality": {
+        "n": 1,
+        "solo": 1,
+        "connected": 1,
+        "helps": 1
+      }
+    }
+  },
+  "channel_model": "Qwen/Qwen3-8B",
+  "speech_model": "Qwen/Qwen3-8B",
+  "results": [
+    {
+      "id": "mem_room_preference",
+      "aspect": "memory_grounding",
+      "user": "Which room should I book for Thursday morning?",
+      "helps": true,
+      "solo": {
+        "mode": "solo",
+        "text": "To help you decide which room to book for Thursday morning, I'll need a bit more information. Could you please tell me:\n\n1. **What type of",
+        "cleaned": "To help you decide which room to book for Thursday morning, I'll need a bit more information. Could you please tell me:\n\n1. **What type of",
+        "elapsed_s": 11.59,
+        "n_tokens": 32,
+        "n_exchanges": 0,
+        "score": {
+          "pass": false,
+          "recall": 0.0,
+          "clean": 1.0,
+          "detail": "all 0/1; any 0/0; forbid_hits 0/2"
+        }
+      },
+      "connected": {
+        "mode": "connected",
+        "text": "Based on the information provided:\n\n- **Rooms available Thursday 09:00-11:00**: 4, 7, 9",
+        "cleaned": "Based on the information provided:\n\n- **Rooms available Thursday 09:00-11:00**: 4, 7, 9",
+        "elapsed_s": 28.56,
+        "n_tokens": 32,
+        "n_exchanges": 20,
+        "score": {
+          "pass": true,
+          "recall": 1.0,
+          "clean": 1.0,
+          "detail": "all 1/1; any 0/0; forbid_hits 0/2"
+        }
+      }
+    },
+    {
+      "id": "plain_chat_hello",
+      "aspect": "conversational_quality",
+      "user": "Reply with exactly the word hello.",
+      "helps": true,
+      "solo": {
+        "mode": "solo",
+        "text": "hello.",
+        "cleaned": "hello.",
+        "elapsed_s": 2.3,
+        "n_tokens": 2,
+        "n_exchanges": 0,
+        "score": {
+          "pass": true,
+          "recall": 1.0,
+          "clean": 1.0,
+          "detail": "all 0/0; any 2/2; forbid_hits 0/0"
+        }
+      },
+      "connected": {
+        "mode": "connected",
+        "text": "hello.",
+        "cleaned": "hello.",
+        "elapsed_s": 180.49,
+        "n_tokens": 2,
+        "n_exchanges": 20,
+        "score": {
+          "pass": true,
+          "recall": 1.0,
+          "clean": 1.0,
+          "detail": "all 0/0; any 2/2; forbid_hits 0/0"
+        }
+      }
+    }
+  ]
+}

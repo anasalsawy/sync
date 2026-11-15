@@ -1,0 +1,77 @@
+{
+  "generated_at": 1794774993.793018,
+  "native_subagent": {
+    "label": "native_subagent_parallel",
+    "task_id": "2bba0b5b0089",
+    "host_mode": "native_subagent",
+    "subagents_launched": [
+      "R0",
+      "R1",
+      "R2"
+    ],
+    "n_subagents": 3,
+    "r_workers": 3,
+    "total_task_s": 0.10778819999541156,
+    "executor_idle_s": 0.013101099990308285,
+    "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+    "satisfied": true,
+    "duplicate_dispatches": 0,
+    "dup_ids_in_log": false,
+    "prep_while_executing": 0,
+    "max_concurrent_dispatches": 4,
+    "via_authorize_task": true,
+    "l_before": {
+      "ttft_s": 0.0008672000258229673,
+      "matched_step_ms_p50": 0.09280000813305378
+    },
+    "l_during": {
+      "ttft_s": 0.0003440000000409782,
+      "matched_step_ms_p50": 0.2523000002838671
+    },
+    "events": [
+      "host_launch",
+      "multi_r_done",
+      "multi_r_invoked"
+    ]
+  },
+  "single_path": {
+    "label": "single_path_sequential",
+    "task_id": "654184137c69",
+    "host_mode": "single_path",
+    "subagents_launched": [],
+    "n_subagents": 0,
+    "r_workers": 3,
+    "total_task_s": 0.30486660002497956,
+    "executor_idle_s": 0.00018630002159625292,
+    "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+    "satisfied": true,
+    "duplicate_dispatches": 0,
+    "dup_ids_in_log": false,
+    "prep_while_executing": 2,
+    "max_concurrent_dispatches": 0,
+    "via_authorize_task": true,
+    "l_before": {
+      "ttft_s": 0.0002376000047661364,
+      "matched_step_ms_p50": 0.12280000373721123
+    },
+    "l_during": {
+      "ttft_s": 0.001422200002707541,
+      "matched_step_ms_p50": 1.212100003613159
+    },
+    "events": [
+      "host_launch",
+      "multi_r_done",
+      "multi_r_invoked"
+    ]
+  },
+  "accept": {
+    "pass": true,
+    "native_launched_three_subagents": true,
+    "native_overlapped_independent_actions": true,
+    "single_path_three_r_active": true,
+    "single_path_prep_ahead": true,
+    "zero_duplicate_dispatches": true,
+    "l_pace_ok": true,
+    "via_companion_submit_task": true
+  }
+}

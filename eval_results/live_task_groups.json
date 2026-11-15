@@ -1,0 +1,491 @@
+{
+  "generated_at": 1794775886.770743,
+  "work_root": "C:\\Users\\anasa\\AppData\\Local\\Temp\\live_task_groups_qdi62gtr",
+  "wall_s": 1.1327564000093844,
+  "sum_group_walls_s": 1.9559070000250358,
+  "execution_overlap_ratio": 1.7266792754460112,
+  "peak_active_task_groups": 3,
+  "peak_active_r_workers": 9,
+  "peak_snapshot": {
+    "at_s": 0.004192399996099994,
+    "active_r_workers_total": 9,
+    "active_task_groups": 3,
+    "groups": [
+      {
+        "path": "browser",
+        "status": "running",
+        "n_workers": 3,
+        "worker_ids": [
+          "browser:tg_2354e6736e:R0",
+          "browser:tg_2354e6736e:R1",
+          "browser:tg_2354e6736e:R2"
+        ]
+      },
+      {
+        "path": "application",
+        "status": "running",
+        "n_workers": 3,
+        "worker_ids": [
+          "application:tg_066026b6f7:R0",
+          "application:tg_066026b6f7:R1",
+          "application:tg_066026b6f7:R2"
+        ]
+      },
+      {
+        "path": "shell",
+        "status": "running",
+        "n_workers": 3,
+        "worker_ids": [
+          "shell:tg_e7558d5d17:R0",
+          "shell:tg_e7558d5d17:R1",
+          "shell:tg_e7558d5d17:R2"
+        ]
+      }
+    ]
+  },
+  "samples": [
+    {
+      "t": 0.0042,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0099,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0254,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0415,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0594,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0748,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0789,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0794,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0797,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0801,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0803,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0804,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0806,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0831,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0835,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0838,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0841,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0842,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0844,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    },
+    {
+      "t": 0.0845,
+      "active_r": 9,
+      "active_groups": 3,
+      "statuses": {
+        "browser": "running",
+        "application": "running",
+        "shell": "running"
+      }
+    }
+  ],
+  "inference_windows": [
+    {
+      "path": "browser",
+      "start": 204177.2997152,
+      "end": 204177.38073520001
+    },
+    {
+      "path": "application",
+      "start": 204177.3010263,
+      "end": 204177.3905631
+    },
+    {
+      "path": "shell",
+      "start": 204177.3024703,
+      "end": 204177.3761353
+    }
+  ],
+  "resource_bus": {
+    "holders": {},
+    "wait_s": 1.4257483999535907,
+    "acquires": 6
+  },
+  "desktop_acquires": 6,
+  "shell_desktop_acquires": 0,
+  "per_group": [
+    {
+      "group_id": "tg_2354e6736e",
+      "task_id": "3ce3de6302e8",
+      "path": "browser",
+      "status": "done",
+      "n_workers": 3,
+      "worker_ids": [
+        "browser:tg_2354e6736e:R0",
+        "browser:tg_2354e6736e:R1",
+        "browser:tg_2354e6736e:R2"
+      ],
+      "host_mode": "single_path",
+      "n_subagents": 0,
+      "total_task_s": 1.1318321999860927,
+      "inference_s": 0.08102000001235865,
+      "duplicate_dispatches": 0,
+      "satisfied": true,
+      "fingerprint": "click@page:start=DONE:click@page:start|navigate@page:start=DONE:navigate@page:start|type@page:start=DONE:type@page:start",
+      "hands_calls": 3
+    },
+    {
+      "group_id": "tg_066026b6f7",
+      "task_id": "fa05d2fe69df",
+      "path": "application",
+      "status": "done",
+      "n_workers": 3,
+      "worker_ids": [
+        "application:tg_066026b6f7:R0",
+        "application:tg_066026b6f7:R1",
+        "application:tg_066026b6f7:R2"
+      ],
+      "host_mode": "native_subagent",
+      "n_subagents": 3,
+      "total_task_s": 0.7336482999962755,
+      "inference_s": 0.0895367999910377,
+      "duplicate_dispatches": 0,
+      "satisfied": true,
+      "fingerprint": "process@app:open=DONE:process@app:open|process@app:save=DONE:process@app:save|process@app:type=DONE:process@app:type",
+      "hands_calls": 3
+    },
+    {
+      "group_id": "tg_e7558d5d17",
+      "task_id": "87686c5902bb",
+      "path": "shell",
+      "status": "done",
+      "n_workers": 3,
+      "worker_ids": [
+        "shell:tg_e7558d5d17:R0",
+        "shell:tg_e7558d5d17:R1",
+        "shell:tg_e7558d5d17:R2"
+      ],
+      "host_mode": "single_path",
+      "n_subagents": 0,
+      "total_task_s": 0.088776799995685,
+      "inference_s": 0.07366500000352971,
+      "duplicate_dispatches": 0,
+      "satisfied": true,
+      "fingerprint": "process@shell:list=DONE:process@shell:list|process@shell:verify=DONE:process@shell:verify|process@shell:write=DONE:process@shell:write",
+      "hands_calls": 3
+    }
+  ],
+  "final_snapshot": {
+    "active_task_groups": 0,
+    "total_task_groups": 3,
+    "workers_per_group": 3,
+    "active_r_workers_total": 0,
+    "groups": [
+      {
+        "group_id": "tg_2354e6736e",
+        "task_id": "3ce3de6302e8",
+        "path": "browser",
+        "goal": "Browser task: navigate to the start page, click search, type a query",
+        "status": "done",
+        "n_workers": 3,
+        "worker_ids": [
+          "browser:tg_2354e6736e:R0",
+          "browser:tg_2354e6736e:R1",
+          "browser:tg_2354e6736e:R2"
+        ],
+        "host_mode": "single_path",
+        "inference_s": 0.08102000001235865,
+        "wall_s": 1.132641500007594,
+        "satisfied": true
+      },
+      {
+        "group_id": "tg_066026b6f7",
+        "task_id": "fa05d2fe69df",
+        "path": "application",
+        "goal": "Application task: open the window, type into the field, save the document",
+        "status": "done",
+        "n_workers": 3,
+        "worker_ids": [
+          "application:tg_066026b6f7:R0",
+          "application:tg_066026b6f7:R1",
+          "application:tg_066026b6f7:R2"
+        ],
+        "host_mode": "native_subagent",
+        "inference_s": 0.0895367999910377,
+        "wall_s": 0.7339537999941967,
+        "satisfied": true
+      },
+      {
+        "group_id": "tg_e7558d5d17",
+        "task_id": "87686c5902bb",
+        "path": "shell",
+        "goal": "Shell task: list files, write a note via shell tools, verify it",
+        "status": "done",
+        "n_workers": 3,
+        "worker_ids": [
+          "shell:tg_e7558d5d17:R0",
+          "shell:tg_e7558d5d17:R1",
+          "shell:tg_e7558d5d17:R2"
+        ],
+        "host_mode": "single_path",
+        "inference_s": 0.07366500000352971,
+        "wall_s": 0.08931170002324507,
+        "satisfied": true
+      }
+    ],
+    "workers": [
+      {
+        "worker_id": "browser:tg_2354e6736e:R0",
+        "group_id": "tg_2354e6736e",
+        "task_id": "3ce3de6302e8",
+        "path": "browser",
+        "active": false
+      },
+      {
+        "worker_id": "browser:tg_2354e6736e:R1",
+        "group_id": "tg_2354e6736e",
+        "task_id": "3ce3de6302e8",
+        "path": "browser",
+        "active": false
+      },
+      {
+        "worker_id": "browser:tg_2354e6736e:R2",
+        "group_id": "tg_2354e6736e",
+        "task_id": "3ce3de6302e8",
+        "path": "browser",
+        "active": false
+      },
+      {
+        "worker_id": "application:tg_066026b6f7:R0",
+        "group_id": "tg_066026b6f7",
+        "task_id": "fa05d2fe69df",
+        "path": "application",
+        "active": false
+      },
+      {
+        "worker_id": "application:tg_066026b6f7:R1",
+        "group_id": "tg_066026b6f7",
+        "task_id": "fa05d2fe69df",
+        "path": "application",
+        "active": false
+      },
+      {
+        "worker_id": "application:tg_066026b6f7:R2",
+        "group_id": "tg_066026b6f7",
+        "task_id": "fa05d2fe69df",
+        "path": "application",
+        "active": false
+      },
+      {
+        "worker_id": "shell:tg_e7558d5d17:R0",
+        "group_id": "tg_e7558d5d17",
+        "task_id": "87686c5902bb",
+        "path": "shell",
+        "active": false
+      },
+      {
+        "worker_id": "shell:tg_e7558d5d17:R1",
+        "group_id": "tg_e7558d5d17",
+        "task_id": "87686c5902bb",
+        "path": "shell",
+        "active": false
+      },
+      {
+        "worker_id": "shell:tg_e7558d5d17:R2",
+        "group_id": "tg_e7558d5d17",
+        "task_id": "87686c5902bb",
+        "path": "shell",
+        "active": false
+      }
+    ],
+    "resources": {
+      "holders": {},
+      "wait_s": 1.4257483999535907,
+      "acquires": 6
+    }
+  },
+  "companion_task_id": "8f4398968431",
+  "companion_group_workers": 3,
+  "accept": {
+    "three_active_groups_at_peak": true,
+    "nine_active_r_at_peak": true,
+    "three_workers_per_group": true,
+    "paths_browser_app_shell": true,
+    "browser_single_stream": true,
+    "application_native_subagents": true,
+    "shell_single_hands_stream": true,
+    "inference_overlap_across_groups": true,
+    "execution_overlap_independent_paths": true,
+    "all_satisfied": true,
+    "zero_dups": true,
+    "companion_hands_entry": true,
+    "pass": true
+  },
+  "event_types": [
+    "task_group_started",
+    "host_launch",
+    "task_group_started",
+    "host_launch",
+    "task_group_started",
+    "host_launch",
+    "task_group_done",
+    "task_group_done",
+    "task_group_done"
+  ]
+}

@@ -2,6 +2,8 @@
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable
 
+# Legacy runtime MAIN includes V. Local Crossing session uses
+# L/R/B/C/Embedder via sync_session.MAIN_WORKERS instead.
 MAIN = ("L", "V", "R", "B", "C", "Embedder")
 
 # Only L and R lead lanes of their own. An offspring never spawns offspring.

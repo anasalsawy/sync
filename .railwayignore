@@ -1,0 +1,14 @@
+eval_results/
+adapters/
+__pycache__/
+*.pyc
+.git/
+.venv/
+venv/
+episodic.db
+_tmp_*.json
+*.pt
+*.bin
+*.safetensors
+.env
+.env.*

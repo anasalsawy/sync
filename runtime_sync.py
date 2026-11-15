@@ -1,5 +1,9 @@
 """runtime_sync.py — Thin orchestrator for the NDIF multi-lobe system.
 
+Primary chat path is now ``sync_session.SyncSession`` (five concurrent local
+workers + activation Crossing). This module keeps the NDIF batched + offspring
+spawn path for research / ``SYNC_RUNTIME=ndif_batch``.
+
 Design principles:
   1. No role-play, no stage directions, no system prompts.
      Every lobe receives the raw user input identically. Character and routing
@@ -35,6 +39,7 @@ from ndif import (
     Generation,
 )
 from action_runtime import ActionRuntime, EnvironmentState
+from sync_session import SyncSession, SessionTurnResult  # noqa: F401 — companion entry
 
 
 # ---------------------------------------------------------------------------
@@ -237,3 +242,32 @@ class SyncRuntime:
             h.task.cancel()
         await asyncio.gather(*(h.task for h in self._handles), return_exceptions=True)
         self._handles.clear()
+
+
+# ---------------------------------------------------------------------------
+# Preferred entry: local five-worker activation Crossing
+# ---------------------------------------------------------------------------
+
+class LocalSyncRuntime:
+    """Session entry point for SYNC_RUNTIME=local_crossing.
+
+    Wraps ``SyncSession`` so callers can import a single runtime module.
+    Roster is fixed to L, R, B, C, Embedder.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        self.session = SyncSession(**kwargs)
+
+    @property
+    def ROSTER(self):
+        return self.session.ROSTER
+
+    async def turn(self, message: str, **kwargs) -> SessionTurnResult:
+        return await self.session.turn(message, **kwargs)
+
+    async def run(self, messages: list[str]):
+        for msg in messages:
+            yield await self.session.turn(msg)
+
+    async def close(self) -> None:
+        await self.session.close()

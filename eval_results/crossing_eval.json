@@ -1,0 +1,160 @@
+{
+  "prompt": "Reply with a short plan for booking a room.",
+  "backend": "sim",
+  "generated_at": 1794772085.3535323,
+  "configs": {
+    "solo": {
+      "config": "solo",
+      "repeats": 3,
+      "tokens": 10,
+      "ttft_s": {
+        "p50": 0.0014761000056751072,
+        "p95": 0.00800137000333052,
+        "n": 3
+      },
+      "total_s": {
+        "p50": 0.004744500009110197,
+        "p95": 0.012770070010446943
+      },
+      "step_ms_all": {
+        "p50": 0.36839999665971845,
+        "p95": 0.745525008824188,
+        "n": 30
+      },
+      "matched_decode_len": 10,
+      "compute_start_spread_s": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "publish_count_mean": 0,
+      "miss_count_mean": 0,
+      "sample_replies": [
+        "of fact of fact of go go <pad> <pad> <pad>",
+        "of fact of fact of go go <pad> <pad> <pad>",
+        "of fact of fact of go go <pad> <pad> <pad>"
+      ],
+      "matched_step_ms": {
+        "p50": 0.3680499939946458,
+        "p95": 0.6453599984524769,
+        "n": 30
+      }
+    },
+    "five_off": {
+      "config": "five_off",
+      "repeats": 3,
+      "tokens": 10,
+      "ttft_s": {
+        "p50": 0.006937900005141273,
+        "p95": 0.007419309977558441,
+        "n": 3
+      },
+      "total_s": {
+        "p50": 0.03278149999096058,
+        "p95": 0.03330394998774864
+      },
+      "step_ms_all": {
+        "p50": 2.334399992832914,
+        "p95": 3.454490013245958,
+        "n": 30
+      },
+      "matched_decode_len": 10,
+      "compute_start_spread_s": {
+        "p50": 0.0018045000033453107,
+        "p95": 0.0024921000003814697
+      },
+      "publish_count_mean": 0,
+      "miss_count_mean": 0,
+      "sample_replies": [
+        "of fact of fact of go go <pad> <pad> <pad>",
+        "of fact of fact of go go <pad> <pad> <pad>",
+        "of fact of fact of go go <pad> <pad> <pad>"
+      ],
+      "matched_step_ms": {
+        "p50": 2.550749995862134,
+        "p95": 3.321630001300946,
+        "n": 30
+      }
+    },
+    "five_on": {
+      "config": "five_on",
+      "repeats": 3,
+      "tokens": 10,
+      "ttft_s": {
+        "p50": 0.008163999998942018,
+        "p95": 0.00962344000581652,
+        "n": 3
+      },
+      "total_s": {
+        "p50": 0.15282920000026934,
+        "p95": 0.1613275400130078
+      },
+      "step_ms_all": {
+        "p50": 15.647549997083843,
+        "p95": 20.729775010840957,
+        "n": 30
+      },
+      "matched_decode_len": 10,
+      "compute_start_spread_s": {
+        "p50": 0.002927800000179559,
+        "p95": 0.0031961800006683914
+      },
+      "publish_count_mean": 126,
+      "miss_count_mean": 63.333333333333336,
+      "sample_replies": [
+        "of fact idle beta <pad> memory secret secret secret idle",
+        "of fact idle beta <pad> memory secret secret secret secret",
+        "of fact idle beta <pad> secret secret secret idle idle"
+      ],
+      "matched_step_ms": {
+        "p50": 16.765549997217022,
+        "p95": 20.716875001380682,
+        "n": 30
+      }
+    }
+  },
+  "causal": {
+    "b_to_l": {
+      "off_reply": "of of fact of of go go <pad> <pad> <pad> <pad> <pad>",
+      "on_reply": "of user idle idle beta secret secret secret secret secret secret stop",
+      "changed": true,
+      "on_consumes": 588,
+      "l_steps": 12
+    },
+    "l_to_r": {
+      "off_reply_r": "plan plan beta beta world world a a alpha <pad> gamma gamma",
+      "on_reply_r": "plan revise a a a index fact fact fact objective objective objective",
+      "on_decisions": [
+        "objective",
+        "objective",
+        "objective",
+        "objective",
+        "objective",
+        "accept",
+        "objective",
+        "accept",
+        "accept"
+      ],
+      "changed": true,
+      "r_injects": 123
+    },
+    "embedder_mid_pass": {
+      "on_injects": 12,
+      "on_embedding_norm": 57.46699142456055,
+      "off_embedding_norm": 4.884050369262695,
+      "embedding_changed": true
+    },
+    "r_to_c": {
+      "c_injects": 131,
+      "c_consumes_ok": true,
+      "c_text": "<pad> verify memory no objective is yes pass pass pass fact pass"
+    }
+  },
+  "pace_check": {
+    "solo_p50_ms": 0.3680499939946458,
+    "five_off_p50_ms": 2.550749995862134,
+    "five_on_p50_ms": 16.765549997217022,
+    "within_solo_p95": false,
+    "contention_ratio_off": 6.930444334959671,
+    "crossing_incremental_ratio": 6.572792325556937
+  }
+}

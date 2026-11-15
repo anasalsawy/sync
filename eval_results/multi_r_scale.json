@@ -1,0 +1,572 @@
+{
+  "generated_at": 1794774324.2268417,
+  "default_multi_r_workers": 3,
+  "eval_control_one_worker": 1,
+  "scale_candidates": [
+    1,
+    3,
+    5
+  ],
+  "l_solo_baseline": {
+    "ttft_s": 0.005023700010497123,
+    "matched_step_ms_p50": 0.4509000136749819,
+    "matched_step_ms_p95": 3.9021999909891747,
+    "l_path_ok": true
+  },
+  "sequential": {
+    "1": {
+      "n_workers": 1,
+      "mode": "sequential",
+      "repeats": 3,
+      "total_task_s": {
+        "p50": 0.29757080000126734,
+        "p95": 0.30250460000825113,
+        "mean": 0.2957657666702289
+      },
+      "executor_idle_s": {
+        "p50": 0.00018500001169741154,
+        "mean": 0.00018063334088462094
+      },
+      "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+      "fingerprint_stable": true,
+      "zero_duplicate_dispatches": true,
+      "all_satisfied": true,
+      "workers_launched": 1,
+      "l_before": {
+        "ttft_s": 0.0005327000108081847,
+        "matched_step_ms_p50": 0.4089499998372048,
+        "matched_step_ms_p95": 0.5036750008002855,
+        "l_path_ok": true
+      },
+      "l_during": {
+        "ttft_s": 0.0008623999892733991,
+        "matched_step_ms_p50": 0.7788999937474728,
+        "matched_step_ms_p95": 0.8598249987699091,
+        "l_path_ok": true
+      },
+      "runs": [
+        {
+          "n_workers": 1,
+          "mode": "sequential",
+          "total_task_s": 0.2866737000003923,
+          "executor_idle_s": 0.00014630000805482268,
+          "executor_busy_s": 0.28216609999071807,
+          "prep_overlap_s": 0.28224800003226846,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 1,
+          "l_before": {
+            "ttft_s": 0.0005327000108081847,
+            "matched_step_ms_p50": 0.4089499998372048,
+            "matched_step_ms_p95": 0.5036750008002855,
+            "l_path_ok": true
+          },
+          "l_during": {
+            "ttft_s": 0.0008623999892733991,
+            "matched_step_ms_p50": 0.7788999937474728,
+            "matched_step_ms_p95": 0.8598249987699091,
+            "l_path_ok": true
+          }
+        },
+        {
+          "n_workers": 1,
+          "mode": "sequential",
+          "total_task_s": 0.29757080000126734,
+          "executor_idle_s": 0.0002106000029016286,
+          "executor_busy_s": 0.29248699999880046,
+          "prep_overlap_s": 0.2926156999892555,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 1,
+          "l_before": null,
+          "l_during": null
+        },
+        {
+          "n_workers": 1,
+          "mode": "sequential",
+          "total_task_s": 0.3030528000090271,
+          "executor_idle_s": 0.00018500001169741154,
+          "executor_busy_s": 0.29727319997618906,
+          "prep_overlap_s": 0.29736760002560914,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 1,
+          "l_before": null,
+          "l_during": null
+        }
+      ]
+    },
+    "3": {
+      "n_workers": 3,
+      "mode": "sequential",
+      "repeats": 3,
+      "total_task_s": {
+        "p50": 0.30289690001518466,
+        "p95": 0.33033132999553344,
+        "mean": 0.3129609666745334
+      },
+      "executor_idle_s": {
+        "p50": 0.0002246999938506633,
+        "mean": 0.00021023333344298104
+      },
+      "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+      "fingerprint_stable": true,
+      "zero_duplicate_dispatches": true,
+      "all_satisfied": true,
+      "workers_launched": 3,
+      "l_before": {
+        "ttft_s": 0.0003512999974191189,
+        "matched_step_ms_p50": 0.34479999158065766,
+        "matched_step_ms_p95": 0.5014750204281881,
+        "l_path_ok": true
+      },
+      "l_during": {
+        "ttft_s": 0.0005484999855980277,
+        "matched_step_ms_p50": 0.2578999992692843,
+        "matched_step_ms_p95": 0.48049999168142676,
+        "l_path_ok": true
+      },
+      "runs": [
+        {
+          "n_workers": 3,
+          "mode": "sequential",
+          "total_task_s": 0.30289690001518466,
+          "executor_idle_s": 0.00025859999004751444,
+          "executor_busy_s": 0.28765349998138845,
+          "prep_overlap_s": 0.2878220000129659,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 3,
+          "l_before": {
+            "ttft_s": 0.0003512999974191189,
+            "matched_step_ms_p50": 0.34479999158065766,
+            "matched_step_ms_p95": 0.5014750204281881,
+            "l_path_ok": true
+          },
+          "l_during": {
+            "ttft_s": 0.0005484999855980277,
+            "matched_step_ms_p50": 0.2578999992692843,
+            "matched_step_ms_p95": 0.48049999168142676,
+            "l_path_ok": true
+          }
+        },
+        {
+          "n_workers": 3,
+          "mode": "sequential",
+          "total_task_s": 0.30260640001506545,
+          "executor_idle_s": 0.0002246999938506633,
+          "executor_busy_s": 0.2882130000216421,
+          "prep_overlap_s": 0.2883394999662414,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 3,
+          "l_before": null,
+          "l_during": null
+        },
+        {
+          "n_workers": 3,
+          "mode": "sequential",
+          "total_task_s": 0.33337959999335,
+          "executor_idle_s": 0.0001474000164307654,
+          "executor_busy_s": 0.3087838000210468,
+          "prep_overlap_s": 0.3088770000031218,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 3,
+          "l_before": null,
+          "l_during": null
+        }
+      ]
+    },
+    "5": {
+      "n_workers": 5,
+      "mode": "sequential",
+      "repeats": 3,
+      "total_task_s": {
+        "p50": 0.31216989998938516,
+        "p95": 0.31651158999302426,
+        "mean": 0.31298719999419217
+      },
+      "executor_idle_s": {
+        "p50": 0.00021880000713281333,
+        "mean": 0.00021290000101240972
+      },
+      "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+      "fingerprint_stable": true,
+      "zero_duplicate_dispatches": true,
+      "all_satisfied": true,
+      "workers_launched": 5,
+      "l_before": {
+        "ttft_s": 0.00030270000570453703,
+        "matched_step_ms_p50": 0.18444999295752496,
+        "matched_step_ms_p95": 0.2852500037988648,
+        "l_path_ok": true
+      },
+      "l_during": {
+        "ttft_s": 0.0019443999917712063,
+        "matched_step_ms_p50": 1.618049995158799,
+        "matched_step_ms_p95": 1.9075500094913878,
+        "l_path_ok": true
+      },
+      "runs": [
+        {
+          "n_workers": 5,
+          "mode": "sequential",
+          "total_task_s": 0.3169939999934286,
+          "executor_idle_s": 0.0001407999952789396,
+          "executor_busy_s": 0.2753853000176605,
+          "prep_overlap_s": 0.2754764999845065,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 5,
+          "l_before": {
+            "ttft_s": 0.00030270000570453703,
+            "matched_step_ms_p50": 0.18444999295752496,
+            "matched_step_ms_p95": 0.2852500037988648,
+            "l_path_ok": true
+          },
+          "l_during": {
+            "ttft_s": 0.0019443999917712063,
+            "matched_step_ms_p50": 1.618049995158799,
+            "matched_step_ms_p95": 1.9075500094913878,
+            "l_path_ok": true
+          }
+        },
+        {
+          "n_workers": 5,
+          "mode": "sequential",
+          "total_task_s": 0.31216989998938516,
+          "executor_idle_s": 0.00021880000713281333,
+          "executor_busy_s": 0.2768913000181783,
+          "prep_overlap_s": 0.2770069999678526,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 5,
+          "l_before": null,
+          "l_during": null
+        },
+        {
+          "n_workers": 5,
+          "mode": "sequential",
+          "total_task_s": 0.3097976999997627,
+          "executor_idle_s": 0.00027910000062547624,
+          "executor_busy_s": 0.2770552000438329,
+          "prep_overlap_s": 0.2772159999876749,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+          "satisfied": true,
+          "workers_launched": 5,
+          "l_before": null,
+          "l_during": null
+        }
+      ]
+    }
+  },
+  "parallel": {
+    "1": {
+      "n_workers": 1,
+      "mode": "parallel",
+      "repeats": 3,
+      "total_task_s": {
+        "p50": 0.18640579999191687,
+        "p95": 0.18939748998382128,
+        "mean": 0.18700126666226424
+      },
+      "executor_idle_s": {
+        "p50": 0.004510200000368059,
+        "mean": 0.00511149998055771
+      },
+      "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+      "fingerprint_stable": true,
+      "zero_duplicate_dispatches": true,
+      "all_satisfied": true,
+      "workers_launched": 1,
+      "l_before": {
+        "ttft_s": 0.0003502999898046255,
+        "matched_step_ms_p50": 0.3599500050768256,
+        "matched_step_ms_p95": 0.49589999980526045,
+        "l_path_ok": true
+      },
+      "l_during": {
+        "ttft_s": 0.0004330999800004065,
+        "matched_step_ms_p50": 0.42905000736936927,
+        "matched_step_ms_p95": 0.46215001930249855,
+        "l_path_ok": true
+      },
+      "runs": [
+        {
+          "n_workers": 1,
+          "mode": "parallel",
+          "total_task_s": 0.18640579999191687,
+          "executor_idle_s": 0.008994999981950969,
+          "executor_busy_s": 0.35973749999538995,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 1,
+          "l_before": {
+            "ttft_s": 0.0003502999898046255,
+            "matched_step_ms_p50": 0.3599500050768256,
+            "matched_step_ms_p95": 0.49589999980526045,
+            "l_path_ok": true
+          },
+          "l_during": {
+            "ttft_s": 0.0004330999800004065,
+            "matched_step_ms_p50": 0.42905000736936927,
+            "matched_step_ms_p95": 0.46215001930249855,
+            "l_path_ok": true
+          }
+        },
+        {
+          "n_workers": 1,
+          "mode": "parallel",
+          "total_task_s": 0.18486810001195408,
+          "executor_idle_s": 0.004510200000368059,
+          "executor_busy_s": 0.3524152000027243,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 1,
+          "l_before": null,
+          "l_during": null
+        },
+        {
+          "n_workers": 1,
+          "mode": "parallel",
+          "total_task_s": 0.18972989998292178,
+          "executor_idle_s": 0.0018292999593541026,
+          "executor_busy_s": 0.38833650000742637,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 1,
+          "l_before": null,
+          "l_during": null
+        }
+      ]
+    },
+    "3": {
+      "n_workers": 3,
+      "mode": "parallel",
+      "repeats": 3,
+      "total_task_s": {
+        "p50": 0.11429980001412332,
+        "p95": 0.12105817000556271,
+        "mean": 0.11576786667380172
+      },
+      "executor_idle_s": {
+        "p50": 0.0215633999905549,
+        "mean": 0.021738299993254866
+      },
+      "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+      "fingerprint_stable": true,
+      "zero_duplicate_dispatches": true,
+      "all_satisfied": true,
+      "workers_launched": 3,
+      "l_before": {
+        "ttft_s": 0.0008572000078856945,
+        "matched_step_ms_p50": 0.8856500062393025,
+        "matched_step_ms_p95": 0.9882249942165799,
+        "l_path_ok": true
+      },
+      "l_during": {
+        "ttft_s": 0.0006066000205464661,
+        "matched_step_ms_p50": 0.19859999883919954,
+        "matched_step_ms_p95": 0.5504749933606945,
+        "l_path_ok": true
+      },
+      "runs": [
+        {
+          "n_workers": 3,
+          "mode": "parallel",
+          "total_task_s": 0.11429980001412332,
+          "executor_idle_s": 0.0215633999905549,
+          "executor_busy_s": 0.3998079999582842,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 3,
+          "l_before": {
+            "ttft_s": 0.0008572000078856945,
+            "matched_step_ms_p50": 0.8856500062393025,
+            "matched_step_ms_p95": 0.9882249942165799,
+            "l_path_ok": true
+          },
+          "l_during": {
+            "ttft_s": 0.0006066000205464661,
+            "matched_step_ms_p50": 0.19859999883919954,
+            "matched_step_ms_p95": 0.5504749933606945,
+            "l_path_ok": true
+          }
+        },
+        {
+          "n_workers": 3,
+          "mode": "parallel",
+          "total_task_s": 0.11119470000267029,
+          "executor_idle_s": 0.015724600001703948,
+          "executor_busy_s": 0.3834218999836594,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 3,
+          "l_before": null,
+          "l_during": null
+        },
+        {
+          "n_workers": 3,
+          "mode": "parallel",
+          "total_task_s": 0.12180910000461154,
+          "executor_idle_s": 0.02792689998750575,
+          "executor_busy_s": 0.3756950999959372,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 3,
+          "l_before": null,
+          "l_during": null
+        }
+      ]
+    },
+    "5": {
+      "n_workers": 5,
+      "mode": "parallel",
+      "repeats": 3,
+      "total_task_s": {
+        "p50": 0.1479234999860637,
+        "p95": 0.15499813000205903,
+        "mean": 0.14361193332782327
+      },
+      "executor_idle_s": {
+        "p50": 0.05232679998152889,
+        "mean": 0.04956713332406556
+      },
+      "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+      "fingerprint_stable": true,
+      "zero_duplicate_dispatches": true,
+      "all_satisfied": true,
+      "workers_launched": 5,
+      "l_before": {
+        "ttft_s": 0.0007097999914549291,
+        "matched_step_ms_p50": 0.6225499819265679,
+        "matched_step_ms_p95": 0.7056249814922921,
+        "l_path_ok": true
+      },
+      "l_during": {
+        "ttft_s": 0.00042619998566806316,
+        "matched_step_ms_p50": 0.3718499938258901,
+        "matched_step_ms_p95": 0.41829998372122645,
+        "l_path_ok": true
+      },
+      "runs": [
+        {
+          "n_workers": 5,
+          "mode": "parallel",
+          "total_task_s": 0.12712809999356978,
+          "executor_idle_s": 0.03283039998495951,
+          "executor_busy_s": 0.40187559998594224,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 5,
+          "l_before": {
+            "ttft_s": 0.0007097999914549291,
+            "matched_step_ms_p50": 0.6225499819265679,
+            "matched_step_ms_p95": 0.7056249814922921,
+            "l_path_ok": true
+          },
+          "l_during": {
+            "ttft_s": 0.00042619998566806316,
+            "matched_step_ms_p50": 0.3718499938258901,
+            "matched_step_ms_p95": 0.41829998372122645,
+            "l_path_ok": true
+          }
+        },
+        {
+          "n_workers": 5,
+          "mode": "parallel",
+          "total_task_s": 0.1557842000038363,
+          "executor_idle_s": 0.05232679998152889,
+          "executor_busy_s": 0.4144312999851536,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 5,
+          "l_before": null,
+          "l_during": null
+        },
+        {
+          "n_workers": 5,
+          "mode": "parallel",
+          "total_task_s": 0.1479234999860637,
+          "executor_idle_s": 0.06354420000570826,
+          "executor_busy_s": 0.33805299998493865,
+          "prep_overlap_s": 0.0,
+          "duplicate_dispatches": 0,
+          "dup_ids_in_log": false,
+          "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+          "satisfied": true,
+          "workers_launched": 5,
+          "l_before": null,
+          "l_during": null
+        }
+      ]
+    }
+  },
+  "decision": {
+    "current_default": 3,
+    "recommend_default": 3,
+    "keep_three": true,
+    "five_faster_sequential": false,
+    "five_faster_parallel": false,
+    "five_preserves_l_solo_pace": true,
+    "reason": "keep three: five does not consistently beat three on sequential and parallel while preserving L solo pace",
+    "seq_p50": {
+      "3": 0.30289690001518466,
+      "5": 0.31216989998938516
+    },
+    "par_p50": {
+      "3": 0.11429980001412332,
+      "5": 0.1479234999860637
+    }
+  },
+  "accept": {
+    "pass": true,
+    "same_final_result_sequential": true,
+    "same_final_result_parallel": true,
+    "zero_duplicate_dispatches": true,
+    "default_remains_three": true
+  }
+}

@@ -1,0 +1,324 @@
+{
+  "generated_at": 1794773807.1560528,
+  "one_r_sequential": {
+    "n_workers": 1,
+    "cross_attn": false,
+    "mode": "sequential",
+    "goal": "Fix the failing unit tests in this code task: investigate failures, prepare edits, re-run tests.",
+    "total_task_s": 0.47542790000443347,
+    "executor_idle_s": 0.03184279997367412,
+    "executor_busy_s": 0.4375286999857053,
+    "prep_overlap_s": 0.437668000056874,
+    "inference_s": 0.004858699976466596,
+    "duplicate_dispatches": 0,
+    "duplicate_claim_attempts": 2,
+    "conflicts_ordered": 12,
+    "dup_action_id_in_log": false,
+    "n_dispatches": 4,
+    "n_edit_dispatches": 2,
+    "satisfied": true,
+    "record_metrics": {
+      "task_id": "0e34941b54c0",
+      "n_actions": 4,
+      "by_status": {
+        "verified": 4
+      },
+      "duplicate_claim_attempts": 2,
+      "duplicate_dispatches_blocked": 0,
+      "conflicts_ordered": 12
+    },
+    "influence_proof": {},
+    "cross_attn_influence": false,
+    "l_before": null,
+    "l_during": null,
+    "dispatch_log": [
+      {
+        "action_id": "4522b191923bf02153e7235a",
+        "effect": "investigate",
+        "resource": "tests",
+        "result": "DONE:investigate@tests"
+      },
+      {
+        "action_id": "ecc0d10f327a4e17d2a4d15a",
+        "effect": "edit",
+        "resource": "src/app.py",
+        "result": "EDITED:src/app.py:patch:fix_a"
+      },
+      {
+        "action_id": "7af7f3bcd617c4f0009d82cc",
+        "effect": "edit",
+        "resource": "src/app.py",
+        "result": "EDITED:src/app.py:patch:fix_b"
+      },
+      {
+        "action_id": "fb907defc12f28c92a8d8296",
+        "effect": "test",
+        "resource": "tests",
+        "result": "TESTS_PASS"
+      }
+    ]
+  },
+  "five_r_sequential_on": {
+    "n_workers": 5,
+    "cross_attn": true,
+    "mode": "sequential",
+    "goal": "Fix the failing unit tests in this code task: investigate failures, prepare edits, re-run tests.",
+    "total_task_s": 0.49593010000535287,
+    "executor_idle_s": 0.03242840000893921,
+    "executor_busy_s": 0.45272649999242276,
+    "prep_overlap_s": 0.45282809998025186,
+    "inference_s": 0.010043600021163002,
+    "duplicate_dispatches": 0,
+    "duplicate_claim_attempts": 2,
+    "conflicts_ordered": 89,
+    "dup_action_id_in_log": false,
+    "n_dispatches": 4,
+    "n_edit_dispatches": 2,
+    "satisfied": true,
+    "record_metrics": {
+      "task_id": "ddca1cddec7f",
+      "n_actions": 4,
+      "by_status": {
+        "verified": 4
+      },
+      "duplicate_claim_attempts": 2,
+      "duplicate_dispatches_blocked": 0,
+      "conflicts_ordered": 89
+    },
+    "influence_proof": {
+      "perturbed_worker": "R0",
+      "before_peer_state0": 0.10334010422229767,
+      "after_peer_state0": 18.584901809692383,
+      "peer_changed": true
+    },
+    "cross_attn_influence": true,
+    "l_before": {
+      "ttft_s": 0.0004707000043708831,
+      "matched_step_ms_p50": 0.12470001820474863,
+      "l_path_ok": true
+    },
+    "l_during": {
+      "ttft_s": 9.82999918051064e-05,
+      "matched_step_ms_p50": 0.06620000931434333,
+      "l_path_ok": true
+    },
+    "dispatch_log": [
+      {
+        "action_id": "4522b191923bf02153e7235a",
+        "effect": "investigate",
+        "resource": "tests",
+        "result": "DONE:investigate@tests"
+      },
+      {
+        "action_id": "ecc0d10f327a4e17d2a4d15a",
+        "effect": "edit",
+        "resource": "src/app.py",
+        "result": "EDITED:src/app.py:patch:fix_a"
+      },
+      {
+        "action_id": "7af7f3bcd617c4f0009d82cc",
+        "effect": "edit",
+        "resource": "src/app.py",
+        "result": "EDITED:src/app.py:patch:fix_b"
+      },
+      {
+        "action_id": "fb907defc12f28c92a8d8296",
+        "effect": "test",
+        "resource": "tests",
+        "result": "TESTS_PASS"
+      }
+    ]
+  },
+  "five_r_sequential_off": {
+    "n_workers": 5,
+    "cross_attn": false,
+    "mode": "sequential",
+    "goal": "Fix the failing unit tests in this code task: investigate failures, prepare edits, re-run tests.",
+    "total_task_s": 0.4828323999827262,
+    "executor_idle_s": 0.034782800008542836,
+    "executor_busy_s": 0.44128950001322664,
+    "prep_overlap_s": 0.4414599000301678,
+    "inference_s": 0.005842499987920746,
+    "duplicate_dispatches": 0,
+    "duplicate_claim_attempts": 2,
+    "conflicts_ordered": 89,
+    "dup_action_id_in_log": false,
+    "n_dispatches": 4,
+    "n_edit_dispatches": 2,
+    "satisfied": true,
+    "record_metrics": {
+      "task_id": "531904b2dab3",
+      "n_actions": 4,
+      "by_status": {
+        "verified": 4
+      },
+      "duplicate_claim_attempts": 2,
+      "duplicate_dispatches_blocked": 0,
+      "conflicts_ordered": 89
+    },
+    "influence_proof": {},
+    "cross_attn_influence": false,
+    "l_before": null,
+    "l_during": null,
+    "dispatch_log": [
+      {
+        "action_id": "4522b191923bf02153e7235a",
+        "effect": "investigate",
+        "resource": "tests",
+        "result": "DONE:investigate@tests"
+      },
+      {
+        "action_id": "ecc0d10f327a4e17d2a4d15a",
+        "effect": "edit",
+        "resource": "src/app.py",
+        "result": "EDITED:src/app.py:patch:fix_a"
+      },
+      {
+        "action_id": "7af7f3bcd617c4f0009d82cc",
+        "effect": "edit",
+        "resource": "src/app.py",
+        "result": "EDITED:src/app.py:patch:fix_b"
+      },
+      {
+        "action_id": "fb907defc12f28c92a8d8296",
+        "effect": "test",
+        "resource": "tests",
+        "result": "TESTS_PASS"
+      }
+    ]
+  },
+  "one_r_parallel": {
+    "n_workers": 1,
+    "cross_attn": false,
+    "mode": "parallel",
+    "goal": "Process independent items in parallel: alpha beta gamma delta",
+    "total_task_s": 0.21753549997811206,
+    "executor_idle_s": 0.0034010000235866755,
+    "executor_busy_s": 0.4324808999954257,
+    "prep_overlap_s": 0.0,
+    "inference_s": 0.0022314000234473497,
+    "duplicate_dispatches": 0,
+    "duplicate_claim_attempts": 0,
+    "conflicts_ordered": 0,
+    "dup_action_id_in_log": false,
+    "n_dispatches": 4,
+    "n_edit_dispatches": 0,
+    "satisfied": true,
+    "record_metrics": {
+      "task_id": "bddd5a54c6c7",
+      "n_actions": 4,
+      "by_status": {
+        "verified": 4
+      },
+      "duplicate_claim_attempts": 0,
+      "duplicate_dispatches_blocked": 0,
+      "conflicts_ordered": 0
+    },
+    "influence_proof": {},
+    "cross_attn_influence": false,
+    "l_before": null,
+    "l_during": null,
+    "dispatch_log": [
+      {
+        "action_id": "1465925d4d5c9a9603fbef8b",
+        "effect": "process",
+        "resource": "item:beta",
+        "result": "DONE:process@item:beta"
+      },
+      {
+        "action_id": "6728df4c0438e949f6ce6dc8",
+        "effect": "process",
+        "resource": "item:alpha",
+        "result": "DONE:process@item:alpha"
+      },
+      {
+        "action_id": "535d8eda31fb1dbd8cc6139e",
+        "effect": "process",
+        "resource": "item:gamma",
+        "result": "DONE:process@item:gamma"
+      },
+      {
+        "action_id": "d7c58452c1556f35222aa6f1",
+        "effect": "process",
+        "resource": "item:delta",
+        "result": "DONE:process@item:delta"
+      }
+    ]
+  },
+  "five_r_parallel": {
+    "n_workers": 5,
+    "cross_attn": true,
+    "mode": "parallel",
+    "goal": "Process independent items in parallel: alpha beta gamma delta",
+    "total_task_s": 0.14618670000345446,
+    "executor_idle_s": 0.02517410001019016,
+    "executor_busy_s": 0.48613219999242574,
+    "prep_overlap_s": 0.0,
+    "inference_s": 0.023860800021793693,
+    "duplicate_dispatches": 0,
+    "duplicate_claim_attempts": 0,
+    "conflicts_ordered": 0,
+    "dup_action_id_in_log": false,
+    "n_dispatches": 4,
+    "n_edit_dispatches": 0,
+    "satisfied": true,
+    "record_metrics": {
+      "task_id": "8ab5971c30f4",
+      "n_actions": 4,
+      "by_status": {
+        "verified": 4
+      },
+      "duplicate_claim_attempts": 0,
+      "duplicate_dispatches_blocked": 0,
+      "conflicts_ordered": 0
+    },
+    "influence_proof": {
+      "perturbed_worker": "R0",
+      "before_peer_state0": 0.21605852246284485,
+      "after_peer_state0": 18.68071174621582,
+      "peer_changed": true
+    },
+    "cross_attn_influence": true,
+    "l_before": null,
+    "l_during": null,
+    "dispatch_log": [
+      {
+        "action_id": "1465925d4d5c9a9603fbef8b",
+        "effect": "process",
+        "resource": "item:beta",
+        "result": "DONE:process@item:beta"
+      },
+      {
+        "action_id": "d7c58452c1556f35222aa6f1",
+        "effect": "process",
+        "resource": "item:delta",
+        "result": "DONE:process@item:delta"
+      },
+      {
+        "action_id": "6728df4c0438e949f6ce6dc8",
+        "effect": "process",
+        "resource": "item:alpha",
+        "result": "DONE:process@item:alpha"
+      },
+      {
+        "action_id": "535d8eda31fb1dbd8cc6139e",
+        "effect": "process",
+        "resource": "item:gamma",
+        "result": "DONE:process@item:gamma"
+      }
+    ]
+  },
+  "accept": {
+    "pass": true,
+    "failures": [],
+    "sharing": {
+      "on_influence": true,
+      "off_influence": false,
+      "off_lacks_influence": true,
+      "seq_1r_s": 0.47542790000443347,
+      "seq_5r_on_s": 0.49593010000535287,
+      "seq_5r_off_s": 0.4828323999827262
+    },
+    "speedup_parallel_vs_1r": 1.4880662876511446
+  }
+}

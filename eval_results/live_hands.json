@@ -1,0 +1,186 @@
+{
+  "generated_at": 1794775527.4983425,
+  "design": "3_R_workers_one_Hands_per_task",
+  "work_root": "C:\\Users\\anasa\\AppData\\Local\\Temp\\live_hands_1hand_3r_tbatbdna",
+  "sequential_pipeline": {
+    "label": "seq",
+    "task_id": "d11cff73257f",
+    "goal": "Pipeline: read the inbox, write a reply to outbox, then send it.",
+    "host_mode": "single_path",
+    "host_backend": "HandsHost",
+    "n_subagents": 0,
+    "r_workers_active": 3,
+    "hands_engines": 1,
+    "hands_engine_ids": [
+      "67ce088ff3"
+    ],
+    "workers_that_dispatched": [
+      "R0",
+      "R1"
+    ],
+    "total_task_s": 0.082905799994478,
+    "wall_submit_s": 0.11197369999717921,
+    "executor_idle_s": 0.00017889999435283244,
+    "hands_busy_s": 0.01979000002029352,
+    "hands_idle_s": 0.00017889999435283244,
+    "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+    "satisfied": true,
+    "duplicate_dispatches": 0,
+    "dup_ids_in_log": false,
+    "prep_while_executing": 2,
+    "max_concurrent_dispatches": 1,
+    "hands_tool_calls": 3,
+    "hands_tools": [
+      "read_file",
+      "write_file",
+      "write_file"
+    ],
+    "hands_elapsed_s": [
+      0.0151,
+      0.0025,
+      0.0022
+    ],
+    "hands_ok": true,
+    "files_touched": [
+      "inbox",
+      "outbox",
+      "processed\\outbox.done",
+      "src\\app.py"
+    ],
+    "n_files_touched": 4,
+    "l_before": {
+      "ttft_s": 0.0565708999929484,
+      "matched_step_ms_p50": 0.2429999876767397
+    },
+    "l_during": {
+      "ttft_s": 0.001560300006531179,
+      "matched_step_ms_p50": 0.12499999138526618
+    },
+    "via_authorize_task": true
+  },
+  "parallel_items_serialized_on_one_hand": {
+    "label": "par",
+    "task_id": "5dc193209cda",
+    "goal": "Process independent items in parallel: alpha beta gamma delta",
+    "host_mode": "single_path",
+    "host_backend": "HandsHost",
+    "n_subagents": 0,
+    "r_workers_active": 3,
+    "hands_engines": 1,
+    "hands_engine_ids": [
+      "fddd01fce7"
+    ],
+    "workers_that_dispatched": [
+      "R0",
+      "R1",
+      "R2"
+    ],
+    "total_task_s": 0.03768439998384565,
+    "wall_submit_s": 0.055489999998826534,
+    "executor_idle_s": 0.0002505999873392284,
+    "hands_busy_s": 0.014985600020736456,
+    "hands_idle_s": 0.0002505999873392284,
+    "final_fingerprint": "process@item:alpha=DONE:process@item:alpha|process@item:beta=DONE:process@item:beta|process@item:delta=DONE:process@item:delta|process@item:gamma=DONE:process@item:gamma",
+    "satisfied": true,
+    "duplicate_dispatches": 0,
+    "dup_ids_in_log": false,
+    "prep_while_executing": 1,
+    "max_concurrent_dispatches": 1,
+    "hands_tool_calls": 4,
+    "hands_tools": [
+      "write_file",
+      "write_file",
+      "write_file",
+      "write_file"
+    ],
+    "hands_elapsed_s": [
+      0.0045,
+      0.0044,
+      0.0036,
+      0.0026
+    ],
+    "hands_ok": true,
+    "files_touched": [
+      "inbox",
+      "processed\\item",
+      "src\\app.py"
+    ],
+    "n_files_touched": 3,
+    "l_before": {
+      "ttft_s": 0.0008608000061940402,
+      "matched_step_ms_p50": 0.2032000047620386
+    },
+    "l_during": {
+      "ttft_s": 0.0005765999958384782,
+      "matched_step_ms_p50": 0.5762999935541302
+    },
+    "via_authorize_task": true
+  },
+  "fix_edit_test": {
+    "label": "fix",
+    "task_id": "72c8a4e4cf33",
+    "goal": "Investigate the failing unit tests, edit src/app.py to fix them, then re-run tests.",
+    "host_mode": "single_path",
+    "host_backend": "HandsHost",
+    "n_subagents": 0,
+    "r_workers_active": 3,
+    "hands_engines": 1,
+    "hands_engine_ids": [
+      "90c5061089"
+    ],
+    "workers_that_dispatched": [
+      "R0",
+      "R1"
+    ],
+    "total_task_s": 0.7381411999813281,
+    "wall_submit_s": 0.7569202000158839,
+    "executor_idle_s": 0.0002809999859891832,
+    "hands_busy_s": 0.7078079000057187,
+    "hands_idle_s": 0.0002809999859891832,
+    "final_fingerprint": "edit@src/app.py=EDITED:src/app.py|investigate@tests=DONE:investigate@tests|test@tests=TESTS_PASS",
+    "satisfied": true,
+    "duplicate_dispatches": 0,
+    "dup_ids_in_log": false,
+    "prep_while_executing": 4,
+    "max_concurrent_dispatches": 1,
+    "hands_tool_calls": 4,
+    "hands_tools": [
+      "list_files",
+      "write_file",
+      "shell",
+      "edit_file"
+    ],
+    "hands_elapsed_s": [
+      0.0034,
+      0.0021,
+      0.6856,
+      0.0167
+    ],
+    "hands_ok": false,
+    "files_touched": [
+      "inbox",
+      "src\\app.py"
+    ],
+    "n_files_touched": 2,
+    "l_before": {
+      "ttft_s": 0.00032369999098591506,
+      "matched_step_ms_p50": 0.3237999917473644
+    },
+    "l_during": {
+      "ttft_s": 0.0006548999808728695,
+      "matched_step_ms_p50": 0.6530999962706119
+    },
+    "via_authorize_task": true
+  },
+  "accept": {
+    "one_hand_per_task": true,
+    "three_r_active": true,
+    "prep_ahead": true,
+    "serial_dispatch": true,
+    "real_hands_tools": true,
+    "files_on_disk": true,
+    "zero_dups": true,
+    "satisfied": true,
+    "pass": true
+  }
+}

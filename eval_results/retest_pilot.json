@@ -1,0 +1,167 @@
+{
+  "summary": {
+    "n": 2,
+    "solo_pass": 1,
+    "connected_pass": 0,
+    "peer_needed": 1,
+    "connected_helps": 0,
+    "by_aspect": {
+      "memory_grounding": {
+        "n": 1,
+        "solo": 0,
+        "connected": 0,
+        "helps": 0
+      },
+      "conversational_quality": {
+        "n": 1,
+        "solo": 1,
+        "connected": 0,
+        "helps": 0
+      }
+    },
+    "latency": {
+      "solo": {
+        "n": 4,
+        "mean": 4.939,
+        "p50": 4.254,
+        "p95": 7.586,
+        "min": 3.661,
+        "max": 7.586
+      },
+      "connected": {
+        "n": 4,
+        "mean": 9.361,
+        "p50": 9.062,
+        "p95": 10.993,
+        "min": 8.325,
+        "max": 10.993
+      },
+      "overhead_mean_s": 4.422
+    }
+  },
+  "model": "Qwen/Qwen3-8B",
+  "max_tokens": 32,
+  "repeats": 2,
+  "results": [
+    {
+      "id": "mem_room_preference",
+      "aspect": "memory_grounding",
+      "user": "Which room should I book for Thursday morning?",
+      "helps": false,
+      "solo": {
+        "mode": "solo",
+        "text": "To help you decide which room to book for Thursday morning, I'll need a bit more information. Could you please tell me:\n\n1. **What type of",
+        "cleaned": "To help you decide which room to book for Thursday morning, I'll need a bit more information. Could you please tell me:\n\n1. **What type of",
+        "elapsed_s": 4.77,
+        "n_tokens": 32,
+        "n_exchanges": 0,
+        "score": {
+          "pass": false,
+          "recall": 0.0,
+          "clean": 1.0,
+          "detail": "all 0/1; any 0/0; forbid_hits 0/2"
+        },
+        "latencies_s": [
+          7.586,
+          4.766
+        ]
+      },
+      "connected": {
+        "mode": "connected",
+        "text": "To help you decide which room to book for Thursday morning, I need more information about:\n\n1. **Which hotel or property are you booking for?**  \n",
+        "cleaned": "To help you decide which room to book for Thursday morning, I need more information about:\n\n1. **Which hotel or property are you booking for?**",
+        "elapsed_s": 9.52,
+        "n_tokens": 32,
+        "n_exchanges": 20,
+        "score": {
+          "pass": false,
+          "recall": 0.0,
+          "clean": 1.0,
+          "detail": "all 0/1; any 0/0; forbid_hits 0/2"
+        },
+        "latencies_s": [
+          10.993,
+          9.52
+        ]
+      },
+      "latency": {
+        "solo": {
+          "n": 2,
+          "mean": 6.176,
+          "p50": 6.176,
+          "p95": 7.586,
+          "min": 4.766,
+          "max": 7.586
+        },
+        "connected": {
+          "n": 2,
+          "mean": 10.256,
+          "p50": 10.256,
+          "p95": 10.993,
+          "min": 9.52,
+          "max": 10.993
+        }
+      }
+    },
+    {
+      "id": "plain_chat_hello",
+      "aspect": "conversational_quality",
+      "user": "Reply with exactly the word hello.",
+      "helps": false,
+      "solo": {
+        "mode": "solo",
+        "text": "hello.",
+        "cleaned": "hello.",
+        "elapsed_s": 3.74,
+        "n_tokens": 2,
+        "n_exchanges": 0,
+        "score": {
+          "pass": true,
+          "recall": 1.0,
+          "clean": 1.0,
+          "detail": "all 0/0; any 2/2; forbid_hits 0/0"
+        },
+        "latencies_s": [
+          3.661,
+          3.742
+        ]
+      },
+      "connected": {
+        "mode": "connected",
+        "text": "",
+        "cleaned": "",
+        "elapsed_s": 8.32,
+        "n_tokens": 0,
+        "n_exchanges": 20,
+        "score": {
+          "pass": false,
+          "recall": 0.0,
+          "clean": 1.0,
+          "detail": "all 0/0; any 0/2; forbid_hits 0/0"
+        },
+        "latencies_s": [
+          8.605,
+          8.325
+        ]
+      },
+      "latency": {
+        "solo": {
+          "n": 2,
+          "mean": 3.702,
+          "p50": 3.702,
+          "p95": 3.742,
+          "min": 3.661,
+          "max": 3.742
+        },
+        "connected": {
+          "n": 2,
+          "mean": 8.465,
+          "p50": 8.465,
+          "p95": 8.605,
+          "min": 8.325,
+          "max": 8.605
+        }
+      }
+    }
+  ]
+}

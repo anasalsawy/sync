@@ -1,0 +1,388 @@
+{
+  "generated_at": 1794774120.1793993,
+  "goal": "Pipeline: read the inbox, write a reply to outbox, then send it. Workers may prepare later steps while an earlier step executes.",
+  "executor": "sequential",
+  "one_r": {
+    "n_workers": 1,
+    "total_task_s": 0.3669458999938797,
+    "executor_idle_s": 0.0002764000091701746,
+    "executor_busy_s": 0.3495489999768324,
+    "prep_overlap_s": 0.3496799000131432,
+    "duplicate_dispatches": 0,
+    "dup_ids_in_log": false,
+    "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+    "satisfied": true,
+    "dispatch_log": [
+      {
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "resource": "inbox",
+        "result": "DONE:read@inbox"
+      },
+      {
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "resource": "outbox",
+        "result": "DONE:write@outbox"
+      },
+      {
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "resource": "outbox",
+        "result": "DONE:send@outbox"
+      }
+    ],
+    "timeline": [
+      {
+        "t_s": 0.0,
+        "kind": "task_start",
+        "goal": "Pipeline: read the inbox, write a reply to outbox, then send it. Workers may prepare later steps while an earlier step executes.",
+        "n_workers": 1
+      },
+      {
+        "t_s": 0.0169,
+        "kind": "inference_done",
+        "s": 0.016157099977135658,
+        "cross_attn": false
+      },
+      {
+        "t_s": 0.0169,
+        "kind": "prepare",
+        "worker": "R0",
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "resource": "inbox",
+        "speculative": false,
+        "while_executor_busy": false
+      },
+      {
+        "t_s": 0.017,
+        "kind": "dispatch_start",
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "resource": "inbox"
+      },
+      {
+        "t_s": 0.0171,
+        "kind": "prepare",
+        "worker": "R0",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "resource": "outbox",
+        "speculative": true,
+        "while_executor_busy": true
+      },
+      {
+        "t_s": 0.0171,
+        "kind": "prepare",
+        "worker": "R0",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "resource": "outbox",
+        "speculative": true,
+        "while_executor_busy": true
+      },
+      {
+        "t_s": 0.1336,
+        "kind": "dispatch_end",
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "result": "DONE:read@inbox",
+        "prep_during_exec": true
+      },
+      {
+        "t_s": 0.1337,
+        "kind": "dispatch_start",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "resource": "outbox"
+      },
+      {
+        "t_s": 0.2499,
+        "kind": "dispatch_end",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "result": "DONE:write@outbox",
+        "prep_during_exec": true
+      },
+      {
+        "t_s": 0.25,
+        "kind": "dispatch_start",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "resource": "outbox"
+      },
+      {
+        "t_s": 0.3669,
+        "kind": "dispatch_end",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "result": "DONE:send@outbox",
+        "prep_during_exec": true
+      },
+      {
+        "t_s": 0.367,
+        "kind": "task_done",
+        "satisfied": true,
+        "fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox"
+      }
+    ],
+    "prep_while_executing": [
+      {
+        "t_s": 0.0171,
+        "worker": "R0",
+        "effect": "write",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "speculative": true,
+        "while_executor_busy": true
+      },
+      {
+        "t_s": 0.0171,
+        "worker": "R0",
+        "effect": "send",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "speculative": true,
+        "while_executor_busy": true
+      }
+    ],
+    "l_before": {
+      "ttft_s": 0.09011999997892417,
+      "matched_step_ms": [
+        90.0942999869585,
+        0.8720000041648746,
+        1.4264000055845827,
+        1.292100001592189,
+        1.0940000065602362,
+        1.0958999919239432
+      ],
+      "matched_step_ms_p50": 1.292100001592189,
+      "l_path_ok": true
+    },
+    "l_during": {
+      "ttft_s": 0.08711069999844767,
+      "matched_step_ms": [
+        87.07310000318103,
+        1.0492999863345176,
+        1.11270000343211,
+        1.0686999885365367,
+        0.9571000118739903,
+        0.9290000016335398
+      ],
+      "matched_step_ms_p50": 1.0686999885365367,
+      "l_path_ok": true
+    },
+    "record_metrics": {
+      "task_id": "c3555c79da77",
+      "n_actions": 3,
+      "by_status": {
+        "verified": 3
+      },
+      "duplicate_claim_attempts": 0,
+      "duplicate_dispatches_blocked": 0,
+      "conflicts_ordered": 1
+    }
+  },
+  "five_r": {
+    "n_workers": 5,
+    "total_task_s": 0.38061589997960255,
+    "executor_idle_s": 0.00023999999393709004,
+    "executor_busy_s": 0.319272099994123,
+    "prep_overlap_s": 0.3194042000104673,
+    "duplicate_dispatches": 0,
+    "dup_ids_in_log": false,
+    "final_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+    "satisfied": true,
+    "dispatch_log": [
+      {
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "resource": "inbox",
+        "result": "DONE:read@inbox"
+      },
+      {
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "resource": "outbox",
+        "result": "DONE:write@outbox"
+      },
+      {
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "resource": "outbox",
+        "result": "DONE:send@outbox"
+      }
+    ],
+    "timeline": [
+      {
+        "t_s": 0.0,
+        "kind": "task_start",
+        "goal": "Pipeline: read the inbox, write a reply to outbox, then send it. Workers may prepare later steps while an earlier step executes.",
+        "n_workers": 5
+      },
+      {
+        "t_s": 0.0609,
+        "kind": "inference_done",
+        "s": 0.06050679998588748,
+        "cross_attn": true
+      },
+      {
+        "t_s": 0.0609,
+        "kind": "prepare",
+        "worker": "R0",
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "resource": "inbox",
+        "speculative": false,
+        "while_executor_busy": false
+      },
+      {
+        "t_s": 0.061,
+        "kind": "dispatch_start",
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "resource": "inbox"
+      },
+      {
+        "t_s": 0.0611,
+        "kind": "prepare",
+        "worker": "R0",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "resource": "outbox",
+        "speculative": true,
+        "while_executor_busy": true
+      },
+      {
+        "t_s": 0.0611,
+        "kind": "prepare",
+        "worker": "R1",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "resource": "outbox",
+        "speculative": true,
+        "while_executor_busy": true
+      },
+      {
+        "t_s": 0.1633,
+        "kind": "dispatch_end",
+        "action_id": "3fbc2bf1bd8c5594347fdeaa",
+        "effect": "read",
+        "result": "DONE:read@inbox",
+        "prep_during_exec": true
+      },
+      {
+        "t_s": 0.1634,
+        "kind": "dispatch_start",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "resource": "outbox"
+      },
+      {
+        "t_s": 0.281,
+        "kind": "dispatch_end",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "effect": "write",
+        "result": "DONE:write@outbox",
+        "prep_during_exec": true
+      },
+      {
+        "t_s": 0.2811,
+        "kind": "dispatch_start",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "resource": "outbox"
+      },
+      {
+        "t_s": 0.3805,
+        "kind": "dispatch_end",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "effect": "send",
+        "result": "DONE:send@outbox",
+        "prep_during_exec": true
+      },
+      {
+        "t_s": 0.3807,
+        "kind": "task_done",
+        "satisfied": true,
+        "fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox"
+      }
+    ],
+    "prep_while_executing": [
+      {
+        "t_s": 0.0611,
+        "worker": "R0",
+        "effect": "write",
+        "action_id": "0c7972764bfba5703b8467a2",
+        "speculative": true,
+        "while_executor_busy": true
+      },
+      {
+        "t_s": 0.0611,
+        "worker": "R1",
+        "effect": "send",
+        "action_id": "0e433686914197b2d0aefbb2",
+        "speculative": true,
+        "while_executor_busy": true
+      }
+    ],
+    "l_before": {
+      "ttft_s": 0.0002432999899610877,
+      "matched_step_ms": [
+        0.24330001906491816,
+        0.0771000050008297,
+        0.07029998232610524,
+        0.06389999180100858,
+        0.06230000872164965,
+        0.0644999963697046
+      ],
+      "matched_step_ms_p50": 0.07029998232610524,
+      "l_path_ok": true
+    },
+    "l_during": {
+      "ttft_s": 0.0003105000068899244,
+      "matched_step_ms": [
+        0.3099000023212284,
+        0.22709998302161694,
+        0.2094999945256859,
+        0.20280000171624124,
+        0.21960001322440803,
+        0.2572000084910542
+      ],
+      "matched_step_ms_p50": 0.22709998302161694,
+      "l_path_ok": true
+    },
+    "record_metrics": {
+      "task_id": "0ff8a244aadb",
+      "n_actions": 3,
+      "by_status": {
+        "verified": 3
+      },
+      "duplicate_claim_attempts": 0,
+      "duplicate_dispatches_blocked": 0,
+      "conflicts_ordered": 1
+    }
+  },
+  "companion_path": {
+    "submit_returned": "1c128646ba62",
+    "multi_r_invoked_event": true,
+    "invocations": [
+      {
+        "task_id": "1c128646ba62",
+        "goal": "Pipeline: read the inbox, write a reply to outbox, then send it. Workers may prepare later steps while an earlier step executes.",
+        "n_workers": 5,
+        "satisfied": true,
+        "via": "authorize_task"
+      }
+    ],
+    "via_authorize_task": true,
+    "last_fingerprint": "read@inbox=DONE:read@inbox|send@outbox=DONE:send@outbox|write@outbox=DONE:write@outbox",
+    "satisfied": true
+  },
+  "accept": {
+    "pass": true,
+    "same_final_result": true,
+    "zero_duplicate_dispatches": true,
+    "prep_ahead_visible_in_timeline": true,
+    "companion_submit_invokes_multi_r": true
+  }
+}
