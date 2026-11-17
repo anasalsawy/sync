@@ -323,8 +323,21 @@ class NDIFChannels:
         return result
 
     def _prepare(self, prompts: list[LobePrompt],
-                 attention_demands: dict[str, tuple[str, ...]] | None) -> dict[str, Any]:
-        """Everything that is plain Python and must exist before the trace."""
+                 attention_demands: dict[str, tuple[str, ...]] | None,
+                 peer_group_names: tuple[str, ...] = (),
+                 peer_group_slots: int | None = None) -> dict[str, Any]:
+        """Everything that is plain Python and must exist before the trace.
+
+        ``peer_group_names``: lobes that are NOT in this batch (they are
+        decoding in a separate, independently-paced ``model.generate()``
+        call) but whose latest tier1 should still be injected into every row
+        here, pulled from SharedState rather than from this trace's own
+        slot-wiring ``order``. This is how two decoupled groups (e.g. L+B+C
+        at conversational pace, R+V at execution pace) still cross live
+        signals without being forced into the same lockstep decode loop.
+        Reserves one extra slot band per row, appended after the intra-group
+        bands, and returns the per-row offsets for it as ``ext_offset``.
+        """
         model = self.model
         layers = self.layers
         count = len(prompts)
@@ -332,11 +345,13 @@ class NDIFChannels:
         first, last = 2, len(layers) - 2
         demands = attention_demands or {}
         default_w = self.slots
+        pg_w = peer_group_slots if peer_group_slots is not None else default_w
         gs = self.gate_strength
 
         slots_map = self._build_slot_map(prompts, demands)
 
         slots_offset: dict[tuple[int, int], int] = {}
+        intra_width: list[int] = [0] * count
         for ri in range(count):
             pos = 0
             for si in range(count):
@@ -344,6 +359,7 @@ class NDIFChannels:
                     continue
                 slots_offset[(ri, si)] = pos
                 pos += slots_map[(ri, si)]
+            intra_width[ri] = pos
 
         peer_names_per_lobe = [[names[si] for si in range(count) if si != ri]
                                for ri in range(count)]
@@ -351,6 +367,14 @@ class NDIFChannels:
                                   for si in range(count) if si != ri}
                                  for ri in range(count)]
         tok = model.tokenizer
+
+        # External (cross-group) slot offsets, one band per row, placed right
+        # after this row's intra-group bands. Empty when peer_group_names=().
+        ext_offset: dict[tuple[int, str], int] = {
+            (ri, name): intra_width[ri] + idx * pg_w
+            for ri in range(count)
+            for idx, name in enumerate(peer_group_names)
+        }
 
         texts = []
         for ri in range(count):
@@ -364,10 +388,13 @@ class NDIFChannels:
                 add_generation_prompt=True,
                 enable_thinking=False,
             )
+            row_peer_names = list(peer_names_per_lobe[ri]) + list(peer_group_names)
+            row_slot_widths = dict(slot_widths_per_lobe[ri])
+            row_slot_widths.update({name: pg_w for name in peer_group_names})
             texts.append(channel_prompt(
                 text,
-                peer_names_per_lobe[ri],
-                slot_widths_per_lobe[ri],
+                row_peer_names,
+                row_slot_widths,
                 default_w,
             ))
 
@@ -411,12 +438,20 @@ class NDIFChannels:
             for ri in range(count)
         ]
 
+        # ext_offset was computed against intra_width/pad_of before tokenizing;
+        # pad_of is now known, so finalize the absolute per-row offsets.
+        ext_offset_abs: dict[tuple[int, str], int] = {
+            (ri, name): pad_of[ri] + rel for (ri, name), rel in ext_offset.items()
+        }
+
         return dict(
             model=model, layers=layers, count=count, names=names,
             first=first, last=last, default_w=default_w, texts=texts,
             longest=longest, pad_of=pad_of, order=order, max_width=max_width,
             row_idx=row_idx, slot_idx=slot_idx, hdim_sqrt=hdim_sqrt,
             demand_boost_grid=demand_boost_grid, is_five_lobe=is_five_lobe,
+            ext_offset=ext_offset_abs, peer_group_names=peer_group_names,
+            peer_group_slots=pg_w,
         )
 
     def _finish(self, prompts: list[LobePrompt], P: dict[str, Any], shared,
@@ -617,6 +652,151 @@ class NDIFChannels:
                                          attention_demands, speaker)
         if shared is not None:
             shared.update_main(result.tier1)
+        return result
+
+    # ------------------------------------------------------------------
+    # Decoupled groups: independent pace per group, crossing via SharedState.
+    # ------------------------------------------------------------------
+    def generate_group_sync(
+        self,
+        prompts: list[LobePrompt],
+        max_new_tokens: int,
+        shared: "SharedState",
+        peer_group_names: tuple[str, ...] = (),
+        attention_demands: dict[str, tuple[str, ...]] | None = None,
+        speaker: str = "L",
+        inject_last: int | None = None,
+    ) -> Generation:
+        """One group's own ``model.generate()`` call, at its own pace.
+
+        Full slot-wiring applies within ``prompts`` (this group), exactly as
+        in ``generate_sync``. In addition, at every layer up to
+        ``inject_last``, the most recent tier1 snapshot each name in
+        ``peer_group_names`` left in ``shared`` (from its *own*, separately
+        paced group call) is written into a reserved band on every row here.
+        This is a between-passes read, not a live mid-forward-pass wait: it
+        never blocks on the other group, so L+B+C can run short and fast
+        while R+V keeps grinding on a longer execution pass, or vice versa,
+        with neither waiting on the other's decode loop.
+        """
+        P = self._prepare(prompts, attention_demands,
+                          peer_group_names=peer_group_names)
+        model, layers = P["model"], P["layers"]
+        names, longest = P["names"], P["longest"]
+        first, last = P["first"], P["last"]
+        default_w, texts = P["default_w"], P["texts"]
+        order = P["order"]
+        row_idx, slot_idx = P["row_idx"], P["slot_idx"]
+        hdim_sqrt = P["hdim_sqrt"]
+        demand_boost_grid = P["demand_boost_grid"]
+        ext_offset, pg_w = P["ext_offset"], P["peer_group_slots"]
+        mid = len(layers) // 2
+        tok = model.tokenizer
+        pad_id = tok.pad_token_id
+        count = P["count"]
+        inject_last = min(inject_last or (last - 1), last - 1)
+
+        # Snapshot once before the trace — nnsight proxies can't safely read
+        # a live Python dict mid-graph. Each group always injects whatever
+        # the other group last finished, never waits for it to finish now.
+        main_snap = shared.main_tier1(list(peer_group_names)) if peer_group_names else {}
+
+        snap_set = set(_SNAP_LAYERS)
+        snaps: dict[int, Any] = {}
+        slot_act = crossing = shared_logits = out = None
+
+        with model.generate(texts, max_new_tokens=int(max_new_tokens),
+                            do_sample=False, pad_token_id=pad_id,
+                            remote=True) as tracer:
+            for index in range(first, last):
+                layer = layers[index]
+                recv_rms = layer.output[:, -1, :].norm(dim=-1) / hdim_sqrt
+
+                if index == mid:
+                    crossing = layer.output[:, -default_w:, :].abs().sum(dim=(1, 2)).save()
+
+                for ri, si, offset, width, wire_first, wire_last in order:
+                    if index < wire_first or index >= wire_last:
+                        continue
+                    peer_slots = layer.output[si, -default_w:, :]
+                    dev = peer_slots.device
+                    send_rms = peer_slots.norm(dim=-1) / hdim_sqrt
+                    scale = (recv_rms[ri].to(dev) / (send_rms + 1e-8)).clamp(0.0, 5.0)
+                    boost = demand_boost_grid[ri][si]
+                    if names[si] == "C" and names[ri] == "L":
+                        boost = boost * C_VETO_BOOST
+                    scaled = (peer_slots * scale.unsqueeze(-1) * boost).to(layer.output[ri].device)
+                    if width == default_w:
+                        layer.output[ri, offset:offset + width, :] = scaled
+                    else:
+                        reps = (width + default_w - 1) // default_w
+                        tiled = scaled.repeat(reps, 1)[:width]
+                        layer.output[ri, offset:offset + width, :] = tiled
+
+                # Cross-group injection: the other group's last tier1, pulled
+                # from SharedState — never generated here, never waited on.
+                if index <= inject_last and peer_group_names:
+                    for name in peer_group_names:
+                        snap_dict = main_snap.get(name)
+                        if not snap_dict:
+                            continue
+                        snap_at = max(
+                            (sl for sl in snap_dict if sl <= index),
+                            default=min(snap_dict.keys()),
+                        )
+                        snap = snap_dict[snap_at]
+                        for ri in range(count):
+                            eo = ext_offset[(ri, name)]
+                            layer.output[ri, eo:eo + pg_w, :] = snap[:pg_w, :]
+
+                if index == mid:
+                    slot_act = layer.output[row_idx, slot_idx, :].abs().mean(dim=-1).save()
+                if index in snap_set:
+                    snaps[index] = layer.output[row_idx, slot_idx, :].save()
+
+            shared_logits = model.lm_head.output[:, -1, :].save()
+            out = (tracer.result if hasattr(tracer, "result")
+                   else model.generator.output).save()
+
+        decision, logits, slot_act, tier1, auto_demands = self._finish(
+            prompts, P, shared_logits, crossing, slot_act, snaps,
+        )
+
+        row = names.index(speaker) if speaker in names else 0
+        sequence = out[row].tolist()
+        new_ids = sequence[longest:] if len(sequence) > longest else sequence
+        stop_ids = {tok.eos_token_id}
+        for special in ("<|im_end|>", "<|endoftext|>"):
+            tid = tok.convert_tokens_to_ids(special)
+            if isinstance(tid, int) and tid >= 0 and tid != tok.unk_token_id:
+                stop_ids.add(tid)
+        trimmed: list[int] = []
+        for tid in new_ids:
+            if tid in stop_ids:
+                break
+            trimmed.append(tid)
+        text = tok.decode(trimmed, skip_special_tokens=True)
+
+        return Generation(decision=decision, logits=logits, slot_act=slot_act,
+                          tier1=tier1, auto_demands=auto_demands,
+                          text=text, token_ids=trimmed)
+
+    async def generate_group(
+        self,
+        prompts: list[LobePrompt],
+        max_new_tokens: int,
+        shared: "SharedState",
+        peer_group_names: tuple[str, ...] = (),
+        attention_demands: dict[str, tuple[str, ...]] | None = None,
+        speaker: str = "L",
+    ) -> Generation:
+        """Async wrapper around generate_group_sync; pushes tier1 back to
+        SharedState so the *other* group's next call sees this one's output."""
+        result = await asyncio.to_thread(
+            self.generate_group_sync, prompts, max_new_tokens, shared,
+            peer_group_names, attention_demands, speaker,
+        )
+        shared.update_main(result.tier1)
         return result
 
     async def reliance(self, prompts: list[LobePrompt], bands: int = 3,
