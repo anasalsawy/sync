@@ -163,26 +163,20 @@ class SyncRuntime:
     # Build prompts — raw input, no role labels
     # ------------------------------------------------------------------
 
-    # Two independently-paced groups. L's claims must be aided by B and
-    # verified by C every call, so they stay in one coupled batch together.
-    # R's execution depends on V's live state, so they stay in a separate
-    # coupled batch. The two batches run fully concurrently — neither's
-    # model.generate() loop waits on the other's step count or token budget —
-    # and Crossing (via SharedState) carries each group's latest tier1 into
-    # the other's trace. This is what makes L's reply pace independent of
-    # how long R+V's execution pass runs, and vice versa.
-    GROUP_LBC: tuple[str, ...] = ("L", "B", "C")
-    GROUP_RV: tuple[str, ...] = ("R", "V")
-
-    def _prompts_for(self, names: tuple[str, ...], user_input: str,
-                     offspring_ctx: dict[str, str]) -> list[LobePrompt]:
-        """Lobes in one group get the same raw input. Offspring results appended as plain text."""
+    def _prompts(self, user_input: str, offspring_ctx: dict[str, str]) -> list[LobePrompt]:
+        """All lobes get the same raw input. Offspring results appended as plain text."""
         text = user_input
         if offspring_ctx:
             # Append without role labels — let the lobes interpret freely
             extra = "\n\n" + "\n\n".join(offspring_ctx.values())
             text = text + extra
-        return [LobePrompt(name, text) for name in names]
+        return [
+            LobePrompt("L", text),
+            LobePrompt("R", text),
+            LobePrompt("B", text),
+            LobePrompt("V", text),
+            LobePrompt("C", text),
+        ]
 
     # ------------------------------------------------------------------
     # Single turn
@@ -193,31 +187,18 @@ class SyncRuntime:
 
         offspring_ctx, cancelled = self._harvest_and_veto()
 
-        # Three concurrent things, nothing serialized:
-        # - L+B+C: conversation + aid + verification, coupled, own pace.
-        # - R+V: execution + live screen, coupled, own pace — can run longer
-        #   than L+B+C without holding L's reply up, since it's a separate
-        #   model.generate() call, not the same lockstep decode loop.
-        # - action round: completed offspring outputs execute their actions
-        #   NOW, latency hidden inside whichever group pass runs longest.
-        lbc_prompts = self._prompts_for(self.GROUP_LBC, user_input, offspring_ctx)
-        rv_prompts = self._prompts_for(self.GROUP_RV, user_input, offspring_ctx)
-        lbc_gen, rv_gen, env_state = await asyncio.gather(
-            self.channels.generate_group(
-                lbc_prompts, self.max_new_tokens, self.shared,
-                peer_group_names=self.GROUP_RV, speaker="L",
-            ),
-            self.channels.generate_group(
-                rv_prompts, self.max_new_tokens, self.shared,
-                peer_group_names=self.GROUP_LBC, speaker="R",
+        # Run main pass AND action round in parallel:
+        # - main pass: 5 lobes process user input, channel injections happen
+        # - action round: completed offspring outputs execute their actions NOW
+        # Both happen simultaneously — action latency is hidden inside main pass latency.
+        generation, env_state = await asyncio.gather(
+            self.channels.generate(
+                self._prompts(user_input, offspring_ctx),
+                max_new_tokens=self.max_new_tokens,
+                shared=self.shared,
             ),
             self._action_runtime.run(offspring_ctx),
         )
-
-        # Merge both groups' tier1 — spawn/divergence below reads R (from the
-        # R+V group) and C (from the L+B+C group) out of the same dict.
-        generation = lbc_gen
-        generation.tier1 = {**lbc_gen.tier1, **rv_gen.tier1}
 
         # Spawn based on R↔C divergence
         n = _spawn_count(generation.tier1)
